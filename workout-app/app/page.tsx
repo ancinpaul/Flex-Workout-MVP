@@ -165,7 +165,7 @@ function computeTargetWeightLb(args: {
     0.7;
 
   // Full day: reduce intensity a bit
-  const dayAdjust = dayType === 'Full' ? -0.05 : 0;
+  const dayAdjust = 0;
   let target = tMax * (basePct + dayAdjust);
 
   // Progression using last time
