@@ -533,7 +533,7 @@ export default function Page() {
       </section>
 
       <footer style={styles.footer}>
-        Tip: This demo persists in your browser. Deploy to Vercel for a shareable link.
+        Demo: Adaptive daily strength training MVP with workout generation, logging, and progression.
       </footer>
     </div>
   );
