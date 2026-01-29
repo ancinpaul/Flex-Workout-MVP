@@ -417,6 +417,19 @@ export default function Page() {
       {/* TODAY */}
       <section style={styles.card}>
         <div style={styles.cardTitle}>Today’s Program</div>
+{today && (
+  <div style={{ marginBottom: 12, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.04)' }}>
+    <div style={{ fontWeight: 700, marginBottom: 6 }}>
+      Why this workout?
+    </div>
+    <div style={{ fontSize: 13, opacity: 0.85 }}>
+      This is a <strong>{today.dayType}</strong> day based on your recent training history.
+      Primary lifts were adjusted using your previous performance, reported difficulty
+      ({today.difficulty}/5), and energy level ({today.energy}/5) to encourage gradual,
+      sustainable progression while managing fatigue.
+    </div>
+  </div>
+)}
 
         {!today ? (
           <div style={styles.note}>No workout generated for today yet. Click “Generate today’s workout”.</div>
