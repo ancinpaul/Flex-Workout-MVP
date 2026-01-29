@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 type LiftKey = 'bench' | 'squat' | 'deadlift' | 'ohp' | 'row';
-type DayType = 'Push' | 'Pull' | 'Legs' | 'Full';
+type DayType = 'Chest & Triceps' | 'Back & Biceps' | 'Legs' | 'Arms';
 
 type Setup = {
   name?: string;
@@ -78,38 +78,40 @@ function formatDate(iso: string) {
 
 function pickNextDayType(history: Session[]): DayType {
   const recent = history.slice(0, 4).map(h => h.dayType);
-  const order: DayType[] = ['Push', 'Pull', 'Legs', 'Full'];
+const order: DayType[] = ['Chest & Triceps', 'Back & Biceps', 'Legs', 'Arms'];
 
   // pick the first day type not seen recently; else rotate by last
   for (const dt of order) {
     if (!recent.includes(dt)) return dt;
   }
   const last = history[0]?.dayType;
-  if (!last) return 'Full';
+  if (!last) return 'Chest & Triceps';
   const idx = order.indexOf(last);
   return order[(idx + 1) % order.length];
 }
 
 function baseWorkoutTemplate(dayType: DayType): Exercise[] {
   // ~5 exercises; big lift + secondary + 3 accessories
-  if (dayType === 'Push') {
+  if (dayType === 'Chest & Triceps') {
     return [
       { id: uid('ex'), name: 'Barbell Bench Press', primary: 'bench', muscleGroups: ['Chest', 'Triceps', 'Shoulders'], sets: 4, reps: '6-10' },
-      { id: uid('ex'), name: 'Overhead Press', primary: 'ohp', muscleGroups: ['Shoulders', 'Triceps'], sets: 3, reps: '6-10' },
       { id: uid('ex'), name: 'Incline Dumbbell Press', primary: 'accessory', muscleGroups: ['Chest'], sets: 3, reps: '8-12' },
-      { id: uid('ex'), name: 'Lateral Raises', primary: 'accessory', muscleGroups: ['Shoulders'], sets: 3, reps: '12-15' },
+      { id: uid('ex'), name: 'Dips (Assisted if needed)', primary: 'accessory', muscleGroups: ['Chest', 'Triceps'], sets: 3, reps: '6-12' },
       { id: uid('ex'), name: 'Triceps Rope Pushdown', primary: 'accessory', muscleGroups: ['Triceps'], sets: 3, reps: '10-15' },
+      { id: uid('ex'), name: 'Overhead Triceps Extension', primary: 'accessory', muscleGroups: ['Triceps'], sets: 3, reps: '10-15' },
     ];
   }
-  if (dayType === 'Pull') {
+
+  if (dayType === 'Back & Biceps') {
     return [
       { id: uid('ex'), name: 'Barbell Row', primary: 'row', muscleGroups: ['Back', 'Biceps'], sets: 4, reps: '6-10' },
       { id: uid('ex'), name: 'Pull-Ups / Lat Pulldown', primary: 'accessory', muscleGroups: ['Back'], sets: 3, reps: '6-12' },
       { id: uid('ex'), name: 'Seated Cable Row', primary: 'accessory', muscleGroups: ['Back'], sets: 3, reps: '8-12' },
-      { id: uid('ex'), name: 'Face Pulls', primary: 'accessory', muscleGroups: ['Rear Delts'], sets: 3, reps: '12-15' },
+      { id: uid('ex'), name: 'Face Pulls', primary: 'accessory', muscleGroups: ['Rear Delts', 'Upper Back'], sets: 3, reps: '12-15' },
       { id: uid('ex'), name: 'Dumbbell Curls', primary: 'accessory', muscleGroups: ['Biceps'], sets: 3, reps: '10-15' },
     ];
   }
+
   if (dayType === 'Legs') {
     return [
       { id: uid('ex'), name: 'Back Squat', primary: 'squat', muscleGroups: ['Quads', 'Glutes'], sets: 4, reps: '5-8' },
@@ -119,15 +121,17 @@ function baseWorkoutTemplate(dayType: DayType): Exercise[] {
       { id: uid('ex'), name: 'Calf Raises', primary: 'accessory', muscleGroups: ['Calves'], sets: 3, reps: '12-20' },
     ];
   }
-  // Full
+
+  // Arms day = Shoulders + Biceps + Triceps
   return [
-    { id: uid('ex'), name: 'Deadlift (Technique / Moderate)', primary: 'deadlift', muscleGroups: ['Posterior Chain'], sets: 3, reps: '3-5' },
-    { id: uid('ex'), name: 'Bench Press (Moderate)', primary: 'bench', muscleGroups: ['Chest', 'Triceps'], sets: 3, reps: '6-10' },
-    { id: uid('ex'), name: 'Barbell Row (Moderate)', primary: 'row', muscleGroups: ['Back'], sets: 3, reps: '6-10' },
-    { id: uid('ex'), name: 'Goblet Squat / Front Squat', primary: 'accessory', muscleGroups: ['Quads', 'Core'], sets: 3, reps: '8-12' },
-    { id: uid('ex'), name: 'Plank / Hanging Knee Raises', primary: 'accessory', muscleGroups: ['Core'], sets: 3, reps: '30-60s' },
+    { id: uid('ex'), name: 'Overhead Press', primary: 'ohp', muscleGroups: ['Shoulders', 'Triceps'], sets: 4, reps: '6-10' },
+    { id: uid('ex'), name: 'Lateral Raises', primary: 'accessory', muscleGroups: ['Shoulders'], sets: 3, reps: '12-15' },
+    { id: uid('ex'), name: 'Incline Dumbbell Curls', primary: 'accessory', muscleGroups: ['Biceps'], sets: 3, reps: '10-15' },
+    { id: uid('ex'), name: 'Skull Crushers', primary: 'accessory', muscleGroups: ['Triceps'], sets: 3, reps: '8-12' },
+    { id: uid('ex'), name: 'Hammer Curls', primary: 'accessory', muscleGroups: ['Biceps', 'Forearms'], sets: 3, reps: '10-15' },
   ];
 }
+
 
 function findLastLiftPerformance(history: Session[], lift: LiftKey) {
   for (const s of history) {
@@ -251,7 +255,7 @@ export default function Page() {
       {
         id: uid('sess'),
         dateISO: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
-        dayType: 'Push',
+        dayType: 'Chest & Triceps',
         muscleGroups: ['Chest', 'Shoulders', 'Triceps'],
         energy: 4,
         difficulty: 3,
@@ -268,7 +272,7 @@ export default function Page() {
       {
         id: uid('sess'),
         dateISO: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString(),
-        dayType: 'Pull',
+        dayType: 'Back & Biceps',
         muscleGroups: ['Back', 'Biceps'],
         energy: 3,
         difficulty: 4,
@@ -424,9 +428,21 @@ export default function Page() {
     </div>
     <div style={{ fontSize: 13, opacity: 0.85 }}>
       This is a <strong>{today.dayType}</strong> day based on your recent training history.
-      Primary lifts were adjusted using your previous performance, reported difficulty
-      ({today.difficulty}/5), and energy level ({today.energy}/5) to encourage gradual,
-      sustainable progression while managing fatigue.
+  {history.length > 1 && (
+    <>
+      {' '}Your last workout was a <strong>{history[1].dayType}</strong> session
+      {' '}({Math.max(
+        1,
+        Math.round(
+          (Date.now() - new Date(history[1].dateISO).getTime()) /
+            (1000 * 60 * 60 * 24)
+        )
+      )} days ago), rated difficulty {history[1].difficulty}/5.
+    </>
+  )}
+  {' '}Today’s weights and volume were adjusted using that performance along with
+  your current energy level ({today.energy}/5) to support steady progress without
+  overtraining.
     </div>
   </div>
 )}
@@ -439,6 +455,10 @@ export default function Page() {
               <Pill>Day: {today.dayType}</Pill>
               <Pill>Muscles: {today.muscleGroups.join(', ')}</Pill>
               <Pill>~60 min</Pill>
+<Pill>
+  Recommended intensity: {today.energy <= 2 || today.difficulty >= 4 ? 'Recovery' : today.energy >= 4 && today.difficulty <= 2 ? 'High' : 'Moderate'}
+</Pill>
+
             </div>
 
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
