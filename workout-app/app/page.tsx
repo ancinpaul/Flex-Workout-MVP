@@ -345,8 +345,8 @@ export default function Page() {
     <div style={styles.page}>
       <div style={styles.header}>
         <div>
-          <div style={styles.h1}>Workout MVP</div>
-          <div style={styles.sub}>Daily strength program + logging + progressive overload (LocalStorage)</div>
+          <div style={styles.h1}>Flex</div>
+          <div style={styles.sub}>The AI workout planner for tracking lifts and driving long-term gains</div>
         </div>
 
         <div style={styles.headerRight}>
