@@ -208,9 +208,27 @@ function loadState(): { setup: Setup | null; history: Session[] } {
   }
 }
 
+function safeJson(obj: unknown) {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(obj, (_key, value) => {
+    // Drop window/document or anything circular / non-serializable
+    if (typeof window !== 'undefined' && value === window) return undefined;
+    if (typeof document !== 'undefined' && value === document) return undefined;
+
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value as object)) return undefined;
+      seen.add(value as object);
+    }
+    // Drop functions
+    if (typeof value === 'function') return undefined;
+
+    return value;
+  });
+}
+
 function saveState(setup: Setup | null, history: Session[]) {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(LS_KEY, JSON.stringify({ setup, history }));
+  window.localStorage.setItem(LS_KEY, safeJson({ setup, history }));
 }
 
 function isSameDay(aISO: string, bISO: string) {
