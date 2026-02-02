@@ -11,7 +11,7 @@ type Setup = {
   heightIn: number;
   weightLb: number;
   goal: 'Hypertrophy' | 'Strength' | 'Health';
-  fiveRM: Record<LiftKey, number>; // lbs
+  fiveRM: Record<LiftKey, number>;
 };
 
 type Exercise = {
@@ -20,7 +20,7 @@ type Exercise = {
   primary: LiftKey | 'accessory';
   muscleGroups: string[];
   sets: number;
-  reps: string; // e.g. "8-10"
+  reps: string;
   targetWeightLb?: number;
   notes?: string;
 };
@@ -28,8 +28,8 @@ type Exercise = {
 type ExerciseLog = {
   exerciseId: string;
   actualWeightLb?: number;
-  actualReps?: string; // e.g. "10,9,8"
-  rpe?: number; // 1-10
+  actualReps?: string;
+  rpe?: number;
   notes?: string;
 };
 
@@ -38,8 +38,8 @@ type Session = {
   dateISO: string;
   dayType: DayType;
   muscleGroups: string[];
-  energy: number; // 1-5
-  difficulty: number; // 1-5
+  energy: number;
+  difficulty: number;
   sleepHours?: number;
   workout: Exercise[];
   logs: ExerciseLog[];
@@ -51,18 +51,14 @@ function uid(prefix = 'id') {
   return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
-// Estimate 1RM from 5RM (Epley-ish). This is a practical approximation.
 function estimate1RMFrom5RM(fiveRM: number) {
-  // Epley: 1RM = w * (1 + reps/30) => reps=5 => w*1.1667
   return fiveRM * (1 + 5 / 30);
 }
 
-// Training max to keep progression sustainable
 function trainingMax(oneRM: number) {
   return oneRM * 0.9;
 }
 
-// Round to nearest 2.5 lb (or 5 if you prefer)
 function roundTo2_5(x: number) {
   return Math.round(x / 2.5) * 2.5;
 }
@@ -78,9 +74,8 @@ function formatDate(iso: string) {
 
 function pickNextDayType(history: Session[]): DayType {
   const recent = history.slice(0, 4).map(h => h.dayType);
-const order: DayType[] = ['Chest & Triceps', 'Back & Biceps', 'Legs', 'Arms'];
+  const order: DayType[] = ['Chest & Triceps', 'Back & Biceps', 'Legs', 'Arms'];
 
-  // pick the first day type not seen recently; else rotate by last
   for (const dt of order) {
     if (!recent.includes(dt)) return dt;
   }
@@ -91,7 +86,6 @@ const order: DayType[] = ['Chest & Triceps', 'Back & Biceps', 'Legs', 'Arms'];
 }
 
 function baseWorkoutTemplate(dayType: DayType): Exercise[] {
-  // ~5 exercises; big lift + secondary + 3 accessories
   if (dayType === 'Chest & Triceps') {
     return [
       { id: uid('ex'), name: 'Barbell Bench Press', primary: 'bench', muscleGroups: ['Chest', 'Triceps', 'Shoulders'], sets: 4, reps: '6-10' },
@@ -122,7 +116,6 @@ function baseWorkoutTemplate(dayType: DayType): Exercise[] {
     ];
   }
 
-  // Arms day = Shoulders + Biceps + Triceps
   return [
     { id: uid('ex'), name: 'Overhead Press', primary: 'ohp', muscleGroups: ['Shoulders', 'Triceps'], sets: 4, reps: '6-10' },
     { id: uid('ex'), name: 'Lateral Raises', primary: 'accessory', muscleGroups: ['Shoulders'], sets: 3, reps: '12-15' },
@@ -132,12 +125,10 @@ function baseWorkoutTemplate(dayType: DayType): Exercise[] {
   ];
 }
 
-
 function findLastLiftPerformance(history: Session[], lift: LiftKey) {
   for (const s of history) {
     for (const ex of s.workout) {
       if (ex.primary === lift && ex.targetWeightLb) {
-        // get associated log if present
         const log = s.logs.find(l => l.exerciseId === ex.id);
         return { session: s, exercise: ex, log };
       }
@@ -151,32 +142,41 @@ function computeTargetWeightLb(args: {
   history: Session[];
   lift: LiftKey;
   dayType: DayType;
+  currentEnergy?: number;
+  currentSleep?: number;
 }) {
-  const { setup, history, lift, dayType } = args;
+  const { setup, history, lift, currentEnergy = 3, currentSleep } = args;
 
   const oneRM = estimate1RMFrom5RM(setup.fiveRM[lift] || 0);
   const tMax = trainingMax(oneRM);
 
-  // Base intensity by goal/day type
-  // Hypertrophy: 65–75% TM; Strength: 75–85% TM; Health: 60–70% TM
   const basePct =
     setup.goal === 'Strength' ? 0.8 :
     setup.goal === 'Health' ? 0.65 :
     0.7;
 
-  // Full day: reduce intensity a bit
-  const dayAdjust = 0;
-  let target = tMax * (basePct + dayAdjust);
+  let target = tMax * basePct;
 
-  // Progression using last time
+  // Apply current session modifiers FIRST (before historical progression)
+  let sessionModifier = 0;
+  
+  // Energy-based adjustment (-5 to +5 lb)
+  if (currentEnergy <= 2) sessionModifier -= 5; // Low energy: reduce weight
+  else if (currentEnergy >= 4) sessionModifier += 5; // High energy: increase weight
+  
+  // Sleep-based adjustment (-2.5 to +2.5 lb)
+  if (currentSleep !== undefined) {
+    if (currentSleep < 6) sessionModifier -= 2.5; // Poor sleep: reduce weight
+    else if (currentSleep >= 8) sessionModifier += 2.5; // Good sleep: increase weight
+  }
+
   const last = findLastLiftPerformance(history, lift);
   if (last?.exercise?.targetWeightLb) {
     const lastW = last.exercise.targetWeightLb;
-
-    // If last session was easy + good energy => add 2.5–5 lb
     const lastDifficulty = last.session.difficulty;
     const lastEnergy = last.session.energy;
 
+    // Historical progression bump
     let bump = 0;
     if (lastDifficulty <= 2 && lastEnergy >= 4) bump = 5;
     else if (lastDifficulty === 3) bump = 2.5;
@@ -185,7 +185,9 @@ function computeTargetWeightLb(args: {
     target = lastW + bump;
   }
 
-  // sane bounds
+  // Apply session modifiers on top of progression
+  target += sessionModifier;
+
   target = clamp(target, tMax * 0.55, tMax * 0.9);
 
   return roundTo2_5(target);
@@ -211,14 +213,20 @@ function saveState(setup: Setup | null, history: Session[]) {
   window.localStorage.setItem(LS_KEY, JSON.stringify({ setup, history }));
 }
 
+function isSameDay(aISO: string, bISO: string) {
+  const a = new Date(aISO);
+  const b = new Date(bISO);
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
 export default function Page() {
   const [{ setup, history }, setStore] = useState<{ setup: Setup | null; history: Session[] }>({ setup: null, history: [] });
-
-  const [demoMode, setDemoMode] = useState(false);
+  const [activeTab, setActiveTab] = useState<'today' | 'history' | 'setup'>('today');
 
   useEffect(() => {
     const s = loadState();
     setStore(s);
+    if (!s.setup) setActiveTab('setup');
   }, []);
 
   useEffect(() => {
@@ -241,7 +249,6 @@ export default function Page() {
   }, [setup]);
 
   function applyDemoData() {
-    setDemoMode(true);
     const demoSetup: Setup = {
       name: 'Demo Athlete',
       gender: 'Male',
@@ -289,9 +296,10 @@ export default function Page() {
     ];
 
     setStore({ setup: demoSetup, history: demoHistory });
+    setActiveTab('today');
   }
 
-  function generateTodayWorkout() {
+  function generateTodayWorkout(energy = 3, sleepHours?: number) {
     if (!setup) return;
 
     const dayType = nextDayType;
@@ -299,7 +307,14 @@ export default function Page() {
 
     const workout = template.map(ex => {
       if (ex.primary === 'bench' || ex.primary === 'squat' || ex.primary === 'deadlift' || ex.primary === 'ohp' || ex.primary === 'row') {
-        const targetWeightLb = computeTargetWeightLb({ setup, history, lift: ex.primary, dayType });
+        const targetWeightLb = computeTargetWeightLb({ 
+          setup, 
+          history, 
+          lift: ex.primary, 
+          dayType,
+          currentEnergy: energy,
+          currentSleep: sleepHours,
+        });
         return { ...ex, targetWeightLb };
       }
       return ex;
@@ -312,13 +327,37 @@ export default function Page() {
       dateISO: new Date().toISOString(),
       dayType,
       muscleGroups,
-      energy: 3,
+      energy,
       difficulty: 3,
+      sleepHours,
       workout,
       logs: workout.map(w => ({ exerciseId: w.id })),
     };
 
     setStore({ setup, history: [session, ...history] });
+    setActiveTab('today');
+  }
+
+  function regenerateWorkoutWeights(energy: number, difficulty: number, sleepHours?: number) {
+    if (!today || !setup) return;
+
+    // Recalculate weights for all primary lifts
+    const updatedWorkout = today.workout.map(ex => {
+      if (ex.primary === 'bench' || ex.primary === 'squat' || ex.primary === 'deadlift' || ex.primary === 'ohp' || ex.primary === 'row') {
+        const targetWeightLb = computeTargetWeightLb({ 
+          setup, 
+          history: history.slice(1), // Exclude current session from history
+          lift: ex.primary, 
+          dayType: today.dayType,
+          currentEnergy: energy,
+          currentSleep: sleepHours,
+        });
+        return { ...ex, targetWeightLb };
+      }
+      return ex;
+    });
+
+    updateToday({ workout: updatedWorkout, energy, difficulty, sleepHours });
   }
 
   const today = history[0] && isSameDay(history[0].dateISO, new Date().toISOString()) ? history[0] : null;
@@ -338,301 +377,1224 @@ export default function Page() {
   function resetAll() {
     window.localStorage.removeItem(LS_KEY);
     setStore({ setup: null, history: [] });
-    setDemoMode(false);
+    setActiveTab('setup');
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <div>
-          <div style={styles.h1}>Flex</div>
-          <div style={styles.sub}>The AI workout planner for tracking lifts and driving long-term gains</div>
+    <div style={{ 
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%)',
+      color: '#f5f5f5',
+      fontFamily: '"Outfit", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
+    }}>
+      {/* Header */}
+      <header style={{
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        background: 'rgba(0,0,0,0.3)',
+        backdropFilter: 'blur(20px)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+      }}>
+        <div style={{ 
+          maxWidth: 1200, 
+          margin: '0 auto', 
+          padding: '20px 24px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <div>
+            <h1 style={{ 
+              margin: 0, 
+              fontSize: 32, 
+              fontWeight: 800,
+              background: 'linear-gradient(135deg, #fff 0%, #a0a0a0 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              letterSpacing: '-0.02em',
+            }}>
+              FLEX
+            </h1>
+            <p style={{ margin: '4px 0 0', fontSize: 13, opacity: 0.6, fontWeight: 400 }}>
+              Adaptive strength training
+            </p>
+          </div>
+          
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button 
+              onClick={applyDemoData}
+              style={{
+                padding: '10px 20px',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 8,
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+              }}
+            >
+              Load Demo
+            </button>
+            <button 
+              onClick={resetAll}
+              style={{
+                padding: '10px 20px',
+                background: 'rgba(255,50,50,0.1)',
+                border: '1px solid rgba(255,50,50,0.2)',
+                borderRadius: 8,
+                color: '#ff6b6b',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,50,50,0.2)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'rgba(255,50,50,0.1)';
+              }}
+            >
+              Reset All
+            </button>
+          </div>
         </div>
 
-        <div style={styles.headerRight}>
-          <label style={styles.toggleRow}>
-            <input type="checkbox" checked={demoMode} onChange={(e) => setDemoMode(e.target.checked)} />
-            <span style={{ marginLeft: 8 }}>Demo Mode</span>
-          </label>
-          <button style={styles.btn} onClick={applyDemoData}>Load demo data</button>
-          <button style={styles.btnSecondary} onClick={resetAll}>Reset</button>
+        {/* Tabs */}
+        <div style={{
+          maxWidth: 1200,
+          margin: '0 auto',
+          padding: '0 24px',
+          display: 'flex',
+          gap: 4,
+        }}>
+          {(['today', 'history', 'setup'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                padding: '12px 24px',
+                background: activeTab === tab ? 'rgba(255,255,255,0.08)' : 'transparent',
+                border: 'none',
+                borderBottom: activeTab === tab ? '2px solid #fff' : '2px solid transparent',
+                color: activeTab === tab ? '#fff' : 'rgba(255,255,255,0.5)',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
-      </div>
+      </header>
 
-      {/* SETUP */}
-      <section style={styles.card}>
-        <div style={styles.cardTitle}>Setup</div>
-        <div style={styles.grid}>
-          <Field label="Name">
-            <input style={styles.input} value={draftSetup.name ?? ''} onChange={(e) => setDraftSetup({ ...draftSetup, name: e.target.value })} />
-          </Field>
-          <Field label="Gender">
-            <input style={styles.input} value={draftSetup.gender} onChange={(e) => setDraftSetup({ ...draftSetup, gender: e.target.value })} />
-          </Field>
-          <Field label="Height (in)">
-            <input style={styles.input} type="number" value={draftSetup.heightIn} onChange={(e) => setDraftSetup({ ...draftSetup, heightIn: Number(e.target.value) })} />
-          </Field>
-          <Field label="Weight (lb)">
-            <input style={styles.input} type="number" value={draftSetup.weightLb} onChange={(e) => setDraftSetup({ ...draftSetup, weightLb: Number(e.target.value) })} />
-          </Field>
-          <Field label="Goal">
-            <select style={styles.input} value={draftSetup.goal} onChange={(e) => setDraftSetup({ ...draftSetup, goal: e.target.value as Setup['goal'] })}>
+      {/* Main Content */}
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
+        {activeTab === 'setup' && (
+          <SetupView 
+            draftSetup={draftSetup}
+            setDraftSetup={setDraftSetup}
+            onSave={() => setStore({ setup: draftSetup, history })}
+            onGenerate={generateTodayWorkout}
+            hasSetup={!!setup}
+          />
+        )}
+
+        {activeTab === 'today' && (
+          <TodayView
+            today={today}
+            nextDayType={nextDayType}
+            history={history}
+            onGenerate={generateTodayWorkout}
+            onUpdateToday={updateToday}
+            onUpdateLog={updateExerciseLog}
+            onRegenerateWeights={regenerateWorkoutWeights}
+            hasSetup={!!setup}
+          />
+        )}
+
+        {activeTab === 'history' && (
+          <HistoryView history={history} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function SetupView({ draftSetup, setDraftSetup, onSave, onGenerate, hasSetup }: any) {
+  return (
+    <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      <div style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16,
+        padding: 32,
+      }}>
+        <h2 style={{ margin: '0 0 24px', fontSize: 24, fontWeight: 700 }}>Profile Setup</h2>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20, marginBottom: 32 }}>
+          <InputField label="Name" value={draftSetup.name ?? ''} onChange={(v) => setDraftSetup({ ...draftSetup, name: v })} />
+          <InputField label="Gender" value={draftSetup.gender} onChange={(v) => setDraftSetup({ ...draftSetup, gender: v })} />
+          <InputField label="Height (in)" type="number" value={draftSetup.heightIn} onChange={(v) => setDraftSetup({ ...draftSetup, heightIn: Number(v) })} />
+          <InputField label="Weight (lb)" type="number" value={draftSetup.weightLb} onChange={(v) => setDraftSetup({ ...draftSetup, weightLb: Number(v) })} />
+          
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 8, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Goal
+            </label>
+            <select 
+              value={draftSetup.goal} 
+              onChange={(e) => setDraftSetup({ ...draftSetup, goal: e.target.value as Setup['goal'] })}
+              style={{
+                width: '100%',
+                padding: 12,
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 8,
+                color: '#fff',
+                fontSize: 14,
+                outline: 'none',
+              }}
+            >
               <option>Hypertrophy</option>
               <option>Strength</option>
               <option>Health</option>
             </select>
-          </Field>
+          </div>
         </div>
 
-        <div style={{ marginTop: 12, fontWeight: 700 }}>5RM inputs (lbs)</div>
-        <div style={styles.grid}>
-          {(['bench', 'squat', 'deadlift', 'ohp', 'row'] as LiftKey[]).map(k => (
-            <Field key={k} label={k.toUpperCase()}>
-              <input
-                style={styles.input}
+        <div style={{ marginBottom: 20 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, opacity: 0.9 }}>5-Rep Max (lbs)</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
+            {(['bench', 'squat', 'deadlift', 'ohp', 'row'] as LiftKey[]).map(k => (
+              <InputField 
+                key={k}
+                label={k.toUpperCase()} 
                 type="number"
-                value={draftSetup.fiveRM[k]}
-                onChange={(e) => setDraftSetup({ ...draftSetup, fiveRM: { ...draftSetup.fiveRM, [k]: Number(e.target.value) } })}
+                value={draftSetup.fiveRM[k]} 
+                onChange={(v) => setDraftSetup({ ...draftSetup, fiveRM: { ...draftSetup.fiveRM, [k]: Number(v) } })} 
               />
-            </Field>
-          ))}
+            ))}
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+        <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
           <button
-            style={styles.btn}
-            onClick={() => setStore({ setup: draftSetup, history })}
+            onClick={onSave}
+            style={{
+              flex: 1,
+              padding: '14px 24px',
+              background: 'linear-gradient(135deg, #fff 0%, #d0d0d0 100%)',
+              border: 'none',
+              borderRadius: 10,
+              color: '#000',
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'transform 0.2s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.02)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
           >
-            Save setup
+            Save Profile
           </button>
+          
           <button
-            style={styles.btn}
-            disabled={!setup}
-            onClick={generateTodayWorkout}
-            title={!setup ? 'Save setup first' : 'Generate today'}
+            onClick={onGenerate}
+            disabled={!hasSetup}
+            style={{
+              flex: 1,
+              padding: '14px 24px',
+              background: hasSetup ? 'rgba(100,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+              border: hasSetup ? '1px solid rgba(100,200,255,0.4)' : '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 10,
+              color: hasSetup ? '#64c8ff' : 'rgba(255,255,255,0.3)',
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: hasSetup ? 'pointer' : 'not-allowed',
+              transition: 'all 0.2s',
+            }}
           >
-            Generate today’s workout
+            Generate Today's Workout
           </button>
         </div>
-
-        {!setup && <div style={styles.note}>Save setup first, then generate today’s workout.</div>}
-      </section>
-
-      {/* TODAY */}
-      <section style={styles.card}>
-        <div style={styles.cardTitle}>Today’s Program</div>
-{today && (
-  <div style={{ marginBottom: 12, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.04)' }}>
-    <div style={{ fontWeight: 700, marginBottom: 6 }}>
-      Why this workout?
+      </div>
     </div>
-    <div style={{ fontSize: 13, opacity: 0.85 }}>
-      This is a <strong>{today.dayType}</strong> day based on your recent training history.
-  {history.length > 1 && (
-    <>
-      {' '}Your last workout was a <strong>{history[1].dayType}</strong> session
-      {' '}({Math.max(
-        1,
-        Math.round(
-          (Date.now() - new Date(history[1].dateISO).getTime()) /
-            (1000 * 60 * 60 * 24)
-        )
-      )} days ago), rated difficulty {history[1].difficulty}/5.
-    </>
-  )}
-  {' '}Today’s weights and volume were adjusted using that performance along with
-  your current energy level ({today.energy}/5) to support steady progress without
-  overtraining.
-    </div>
-  </div>
-)}
+  );
+}
 
-        {!today ? (
-          <div style={styles.note}>No workout generated for today yet. Click “Generate today’s workout”.</div>
-        ) : (
-          <>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-              <Pill>Day: {today.dayType}</Pill>
-              <Pill>Muscles: {today.muscleGroups.join(', ')}</Pill>
-              <Pill>~60 min</Pill>
-<Pill>
-  Recommended intensity: {today.energy <= 2 || today.difficulty >= 4 ? 'Recovery' : today.energy >= 4 && today.difficulty <= 2 ? 'High' : 'Moderate'}
-</Pill>
+function TodayView({ today, nextDayType, history, onGenerate, onUpdateToday, onUpdateLog, onRegenerateWeights, hasSetup }: any) {
+  if (!today) {
+    return (
+      <div style={{ 
+        maxWidth: 600, 
+        margin: '120px auto',
+        textAlign: 'center',
+      }}>
+        <div style={{
+          width: 80,
+          height: 80,
+          margin: '0 auto 24px',
+          borderRadius: '50%',
+          background: 'rgba(255,255,255,0.05)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 40,
+        }}>
+          💪
+        </div>
+        <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>No Workout Yet</h2>
+        <p style={{ opacity: 0.6, marginBottom: 32, fontSize: 15 }}>
+          {hasSetup 
+            ? `Ready to start a ${nextDayType} workout?` 
+            : 'Complete your profile setup first, then generate your workout.'}
+        </p>
+        <button
+          onClick={() => onGenerate()}
+          disabled={!hasSetup}
+          style={{
+            padding: '16px 40px',
+            background: hasSetup ? 'linear-gradient(135deg, #fff 0%, #d0d0d0 100%)' : 'rgba(255,255,255,0.1)',
+            border: 'none',
+            borderRadius: 12,
+            color: hasSetup ? '#000' : 'rgba(255,255,255,0.3)',
+            fontSize: 16,
+            fontWeight: 700,
+            cursor: hasSetup ? 'pointer' : 'not-allowed',
+            transition: 'transform 0.2s',
+          }}
+          onMouseEnter={e => hasSetup && (e.currentTarget.style.transform = 'scale(1.05)')}
+          onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+        >
+          Generate Workout
+        </button>
+      </div>
+    );
+  }
 
-            </div>
+  return (
+    <div>
+      {/* Workout Header */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(100,200,255,0.1) 0%, rgba(150,100,255,0.1) 100%)',
+        border: '1px solid rgba(100,200,255,0.2)',
+        borderRadius: 16,
+        padding: 24,
+        marginBottom: 24,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>{today.dayType}</h2>
+            <p style={{ margin: '6px 0 0', opacity: 0.7, fontSize: 14 }}>
+              {today.muscleGroups.join(' • ')}
+            </p>
+          </div>
+          <div style={{
+            padding: '8px 16px',
+            background: 'rgba(255,255,255,0.1)',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+          }}>
+            ~60 min
+          </div>
+        </div>
 
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-              <FieldInline label="Energy (1-5)">
-                <input style={styles.inputSmall} type="number" min={1} max={5} value={today.energy} onChange={(e) => updateToday({ energy: clamp(Number(e.target.value), 1, 5) })} />
-              </FieldInline>
-              <FieldInline label="Difficulty (1-5)">
-                <input style={styles.inputSmall} type="number" min={1} max={5} value={today.difficulty} onChange={(e) => updateToday({ difficulty: clamp(Number(e.target.value), 1, 5) })} />
-              </FieldInline>
-              <FieldInline label="Sleep (hrs)">
-                <input style={styles.inputSmall} type="number" min={0} max={12} value={today.sleepHours ?? ''} onChange={(e) => updateToday({ sleepHours: e.target.value === '' ? undefined : Number(e.target.value) })} />
-              </FieldInline>
-            </div>
-
-            <div style={styles.table}>
-              <div style={styles.tableHead}>
-                <div>Exercise</div>
-                <div>Sets</div>
-                <div>Reps</div>
-                <div>Target (lb)</div>
-              </div>
-
-              {today.workout.map(ex => (
-                <div key={ex.id} style={styles.tableRow}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{ex.name}</div>
-                    <div style={styles.muted}>{ex.muscleGroups.join(', ')}</div>
-                  </div>
-                  <div>{ex.sets}</div>
-                  <div>{ex.reps}</div>
-                  <div>{ex.targetWeightLb ?? '—'}</div>
-                </div>
-              ))}
-            </div>
-          </>
+        {history.length > 1 && (
+          <div style={{
+            padding: 16,
+            background: 'rgba(0,0,0,0.2)',
+            borderRadius: 10,
+            fontSize: 13,
+            lineHeight: 1.6,
+            opacity: 0.9,
+          }}>
+            Last workout: <strong>{history[1].dayType}</strong> ({Math.max(1, Math.round((Date.now() - new Date(history[1].dateISO).getTime()) / (1000 * 60 * 60 * 24)))} days ago)
+            — Difficulty {history[1].difficulty}/5, Energy {history[1].energy}/5
+          </div>
         )}
-      </section>
+      </div>
 
-      {/* LOGGER */}
-      <section style={styles.card}>
-        <div style={styles.cardTitle}>Logger</div>
-        {!today ? (
-          <div style={styles.note}>Generate today’s workout to log it.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {today.workout.map(ex => {
-              const log = today.logs.find(l => l.exerciseId === ex.id);
+      {/* Session Metrics */}
+      <div style={{ 
+        background: 'rgba(255,200,100,0.05)',
+        border: '1px solid rgba(255,200,100,0.15)',
+        borderRadius: 12,
+        padding: 20,
+        marginBottom: 24,
+      }}>
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 8, 
+          marginBottom: 16,
+          fontSize: 13,
+          fontWeight: 600,
+          color: '#ffcc66',
+        }}>
+          <span>⚡</span>
+          <span>Adjust these to automatically update your workout weights</span>
+        </div>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+          <MetricCard 
+            label="Energy Level"
+            value={today.energy}
+            max={5}
+            onChange={(v) => onRegenerateWeights(v, today.difficulty, today.sleepHours)}
+          />
+          <MetricCard 
+            label="Difficulty"
+            value={today.difficulty}
+            max={5}
+            onChange={(v) => onRegenerateWeights(today.energy, v, today.sleepHours)}
+          />
+          <MetricCard 
+            label="Sleep (hours)"
+            value={today.sleepHours ?? 0}
+            max={12}
+            onChange={(v) => onRegenerateWeights(today.energy, today.difficulty, v || undefined)}
+          />
+        </div>
+      </div>
+
+      {/* Exercises */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {today.workout.map((ex: Exercise) => {
+          const log = today.logs.find((l: ExerciseLog) => l.exerciseId === ex.id);
+          return (
+            <ExerciseCard 
+              key={ex.id}
+              exercise={ex}
+              log={log}
+              onUpdateLog={(patch) => onUpdateLog(ex.id, patch)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function extractProgressData(
+  history: Session[], 
+  selectedDayType: DayType | 'all',
+  selectedLift: LiftKey | 'all'
+) {
+  const data: Array<{
+    date: string;
+    dateISO: string;
+    dayType: DayType;
+    lift: LiftKey;
+    liftName: string;
+    weight: number;
+    energy: number;
+    difficulty: number;
+  }> = [];
+
+  // Filter by day type first
+  const filteredHistory = selectedDayType === 'all' 
+    ? history 
+    : history.filter(s => s.dayType === selectedDayType);
+
+  filteredHistory.forEach(session => {
+    session.workout.forEach(exercise => {
+      if (exercise.primary !== 'accessory' && exercise.targetWeightLb) {
+        const lift = exercise.primary as LiftKey;
+        
+        // Filter by lift if specified
+        if (selectedLift === 'all' || lift === selectedLift) {
+          data.push({
+            date: formatDate(session.dateISO),
+            dateISO: session.dateISO,
+            dayType: session.dayType,
+            lift,
+            liftName: exercise.name,
+            weight: exercise.targetWeightLb,
+            energy: session.energy,
+            difficulty: session.difficulty,
+          });
+        }
+      }
+    });
+  });
+
+  // Sort by date (oldest first for chart)
+  return data.sort((a, b) => new Date(a.dateISO).getTime() - new Date(b.dateISO).getTime());
+}
+
+function ProgressChart({ data, selectedLift }: { 
+  data: ReturnType<typeof extractProgressData>,
+  selectedLift: LiftKey | 'all'
+}) {
+  if (data.length === 0) {
+    return (
+      <div style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 12,
+        padding: 40,
+        textAlign: 'center',
+      }}>
+        <p style={{ opacity: 0.6 }}>No data available for selected filters</p>
+      </div>
+    );
+  }
+
+  // Group by lift type
+  const liftGroups: Record<LiftKey, typeof data> = {
+    bench: [],
+    squat: [],
+    deadlift: [],
+    ohp: [],
+    row: [],
+  };
+
+  data.forEach(point => {
+    liftGroups[point.lift].push(point);
+  });
+
+  // Calculate chart dimensions and scales
+  const chartWidth = 800;
+  const chartHeight = 400;
+  const padding = { top: 40, right: 60, bottom: 60, left: 60 };
+  const innerWidth = chartWidth - padding.left - padding.right;
+  const innerHeight = chartHeight - padding.top - padding.bottom;
+
+  // Find min/max weights across all data
+  const allWeights = data.map(d => d.weight);
+  const minWeight = Math.floor(Math.min(...allWeights) / 10) * 10 - 10;
+  const maxWeight = Math.ceil(Math.max(...allWeights) / 10) * 10 + 10;
+
+  // Colors for each lift
+  const liftColors: Record<LiftKey, string> = {
+    bench: '#64c8ff',
+    squat: '#ff6b9d',
+    deadlift: '#ffd93d',
+    ohp: '#95e1d3',
+    row: '#c77dff',
+  };
+
+  const liftNames: Record<LiftKey, string> = {
+    bench: 'Bench Press',
+    squat: 'Squat',
+    deadlift: 'Deadlift',
+    ohp: 'Overhead Press',
+    row: 'Barbell Row',
+  };
+
+  // Create scales
+  const xScale = (index: number, total: number) => {
+    return padding.left + (index / Math.max(1, total - 1)) * innerWidth;
+  };
+
+  const yScale = (weight: number) => {
+    return chartHeight - padding.bottom - ((weight - minWeight) / (maxWeight - minWeight)) * innerHeight;
+  };
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 16,
+      padding: 24,
+      overflow: 'hidden',
+    }}>
+      <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
+        Weight Progress Over Time
+      </h3>
+
+      <div style={{ overflowX: 'auto' }}>
+        <svg width={chartWidth} height={chartHeight} style={{ display: 'block' }}>
+          {/* Grid lines */}
+          {[0, 1, 2, 3, 4].map(i => {
+            const weight = minWeight + (i / 4) * (maxWeight - minWeight);
+            const y = yScale(weight);
+            return (
+              <g key={i}>
+                <line
+                  x1={padding.left}
+                  y1={y}
+                  x2={chartWidth - padding.right}
+                  y2={y}
+                  stroke="rgba(255,255,255,0.1)"
+                  strokeWidth={1}
+                />
+                <text
+                  x={padding.left - 10}
+                  y={y + 4}
+                  fill="rgba(255,255,255,0.5)"
+                  fontSize={12}
+                  textAnchor="end"
+                >
+                  {Math.round(weight)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* X-axis */}
+          <line
+            x1={padding.left}
+            y1={chartHeight - padding.bottom}
+            x2={chartWidth - padding.right}
+            y2={chartHeight - padding.bottom}
+            stroke="rgba(255,255,255,0.2)"
+            strokeWidth={2}
+          />
+
+          {/* Y-axis */}
+          <line
+            x1={padding.left}
+            y1={padding.top}
+            x2={padding.left}
+            y2={chartHeight - padding.bottom}
+            stroke="rgba(255,255,255,0.2)"
+            strokeWidth={2}
+          />
+
+          {/* Y-axis label */}
+          <text
+            x={20}
+            y={padding.top + innerHeight / 2}
+            fill="rgba(255,255,255,0.6)"
+            fontSize={14}
+            fontWeight={600}
+            textAnchor="middle"
+            transform={`rotate(-90, 20, ${padding.top + innerHeight / 2})`}
+          >
+            Weight (lbs)
+          </text>
+
+          {/* Plot lines for each lift */}
+          {Object.entries(liftGroups).map(([lift, points]) => {
+            if (points.length === 0) return null;
+
+            const pathData = points.map((point, i) => {
+              const x = xScale(data.indexOf(point), data.length);
+              const y = yScale(point.weight);
+              return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+            }).join(' ');
+
+            return (
+              <g key={lift}>
+                {/* Line */}
+                <path
+                  d={pathData}
+                  fill="none"
+                  stroke={liftColors[lift as LiftKey]}
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                
+                {/* Points */}
+                {points.map((point, i) => {
+                  const x = xScale(data.indexOf(point), data.length);
+                  const y = yScale(point.weight);
+                  
+                  return (
+                    <g key={i}>
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={5}
+                        fill={liftColors[lift as LiftKey]}
+                        stroke="rgba(0,0,0,0.5)"
+                        strokeWidth={2}
+                      />
+                      {/* Tooltip on hover */}
+                      <title>{`${point.liftName}: ${point.weight} lbs\n${point.date}\nEnergy: ${point.energy}/5`}</title>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })}
+
+          {/* Date labels */}
+          {data.map((point, i) => {
+            if (i % Math.max(1, Math.floor(data.length / 6)) === 0 || i === data.length - 1) {
+              const x = xScale(i, data.length);
               return (
-                <div key={ex.id} style={styles.logRow}>
-                  <div style={{ flex: 2 }}>
-                    <div style={{ fontWeight: 700 }}>{ex.name}</div>
-                    <div style={styles.muted}>
-                      {ex.sets} × {ex.reps} {ex.targetWeightLb ? ` @ ${ex.targetWeightLb} lb target` : ''}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 10, flex: 3, flexWrap: 'wrap' }}>
-                    <FieldInline label="Actual lb">
-                      <input
-                        style={styles.inputSmall}
-                        type="number"
-                        value={log?.actualWeightLb ?? ''}
-                        onChange={(e) => updateExerciseLog(ex.id, { actualWeightLb: e.target.value === '' ? undefined : Number(e.target.value) })}
-                      />
-                    </FieldInline>
-                    <FieldInline label="Reps (e.g. 10,9,8)">
-                      <input
-                        style={styles.inputSmallWide}
-                        value={log?.actualReps ?? ''}
-                        onChange={(e) => updateExerciseLog(ex.id, { actualReps: e.target.value })}
-                      />
-                    </FieldInline>
-                    <FieldInline label="RPE (1-10)">
-                      <input
-                        style={styles.inputSmall}
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={log?.rpe ?? ''}
-                        onChange={(e) => updateExerciseLog(ex.id, { rpe: e.target.value === '' ? undefined : clamp(Number(e.target.value), 1, 10) })}
-                      />
-                    </FieldInline>
+                <text
+                  key={i}
+                  x={x}
+                  y={chartHeight - padding.bottom + 20}
+                  fill="rgba(255,255,255,0.5)"
+                  fontSize={11}
+                  textAnchor="middle"
+                  transform={`rotate(-45, ${x}, ${chartHeight - padding.bottom + 20})`}
+                >
+                  {point.date}
+                </text>
+              );
+            }
+            return null;
+          })}
+        </svg>
+      </div>
+
+      {/* Legend */}
+      <div style={{ 
+        display: 'flex', 
+        gap: 20, 
+        marginTop: 24, 
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+      }}>
+        {Object.entries(liftGroups)
+          .filter(([_, points]) => points.length > 0)
+          .map(([lift, points]) => (
+            <div 
+              key={lift}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 8,
+              }}
+            >
+              <div style={{
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                background: liftColors[lift as LiftKey],
+              }} />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                {liftNames[lift as LiftKey]} ({points.length})
+              </span>
+            </div>
+          ))}
+      </div>
+
+      {/* Stats Summary */}
+      <div style={{
+        marginTop: 24,
+        padding: 16,
+        background: 'rgba(0,0,0,0.2)',
+        borderRadius: 10,
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+        gap: 16,
+      }}>
+        {Object.entries(liftGroups)
+          .filter(([_, points]) => points.length > 0)
+          .map(([lift, points]) => {
+            const weights = points.map(p => p.weight);
+            const firstWeight = weights[0];
+            const lastWeight = weights[weights.length - 1];
+            const change = lastWeight - firstWeight;
+            const percentChange = ((change / firstWeight) * 100).toFixed(1);
+
+            return (
+              <div key={lift} style={{ textAlign: 'center' }}>
+                <div style={{ 
+                  fontSize: 11, 
+                  opacity: 0.6, 
+                  marginBottom: 4,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}>
+                  {liftNames[lift as LiftKey]}
+                </div>
+                <div style={{ 
+                  fontSize: 20, 
+                  fontWeight: 700,
+                  color: change >= 0 ? '#4ade80' : '#ff6b6b',
+                }}>
+                  {change >= 0 ? '+' : ''}{change} lbs
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
+                  {change >= 0 ? '+' : ''}{percentChange}% gain
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
+function HistoryView({ history }: { history: Session[] }) {
+  const [selectedDayType, setSelectedDayType] = useState<DayType | 'all'>('all');
+  const [selectedLift, setSelectedLift] = useState<LiftKey | 'all'>('all');
+
+  if (history.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '120px 0' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
+        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>No History Yet</h2>
+        <p style={{ opacity: 0.6 }}>Your workout history will appear here once you start tracking.</p>
+      </div>
+    );
+  }
+
+  // Get all unique day types from history
+  const dayTypes: DayType[] = Array.from(new Set(history.map(s => s.dayType)));
+  
+  // Extract progress data for charts
+  const progressData = extractProgressData(history, selectedDayType, selectedLift);
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Workout History & Progress</h2>
+      
+      {/* Filters */}
+      <div style={{ 
+        display: 'flex', 
+        gap: 12, 
+        marginBottom: 32,
+        flexWrap: 'wrap',
+      }}>
+        <div>
+          <label style={{ 
+            display: 'block', 
+            fontSize: 12, 
+            fontWeight: 600, 
+            marginBottom: 8, 
+            opacity: 0.7,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}>
+            Workout Type
+          </label>
+          <select 
+            value={selectedDayType} 
+            onChange={(e) => setSelectedDayType(e.target.value as DayType | 'all')}
+            style={{
+              padding: '10px 16px',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 8,
+              color: '#fff',
+              fontSize: 14,
+              fontWeight: 600,
+              outline: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="all">All Workouts</option>
+            {dayTypes.map(dt => (
+              <option key={dt} value={dt}>{dt}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={{ 
+            display: 'block', 
+            fontSize: 12, 
+            fontWeight: 600, 
+            marginBottom: 8, 
+            opacity: 0.7,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}>
+            Primary Lift
+          </label>
+          <select 
+            value={selectedLift} 
+            onChange={(e) => setSelectedLift(e.target.value as LiftKey | 'all')}
+            style={{
+              padding: '10px 16px',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 8,
+              color: '#fff',
+              fontSize: 14,
+              fontWeight: 600,
+              outline: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="all">All Lifts</option>
+            <option value="bench">Bench Press</option>
+            <option value="squat">Squat</option>
+            <option value="deadlift">Deadlift</option>
+            <option value="ohp">Overhead Press</option>
+            <option value="row">Barbell Row</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Progress Charts */}
+      {progressData.length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <ProgressChart data={progressData} selectedLift={selectedLift} />
+        </div>
+      )}
+
+      {/* Session List */}
+      <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, marginTop: 40 }}>
+        Session Log
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {history
+          .filter(s => selectedDayType === 'all' || s.dayType === selectedDayType)
+          .map((session, idx) => (
+            <HistoryCard 
+              key={session.id} 
+              session={session} 
+              isRecent={idx === 0}
+              selectedLift={selectedLift}
+            />
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function InputField({ label, value, onChange, type = 'text' }: any) {
+  return (
+    <div>
+      <label style={{ 
+        display: 'block', 
+        fontSize: 12, 
+        fontWeight: 600, 
+        marginBottom: 8, 
+        opacity: 0.7,
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}>
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          width: '100%',
+          padding: 12,
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 8,
+          color: '#fff',
+          fontSize: 14,
+          outline: 'none',
+          transition: 'all 0.2s',
+        }}
+        onFocus={(e) => {
+          e.target.style.borderColor = 'rgba(255,255,255,0.3)';
+          e.target.style.background = 'rgba(255,255,255,0.08)';
+        }}
+        onBlur={(e) => {
+          e.target.style.borderColor = 'rgba(255,255,255,0.1)';
+          e.target.style.background = 'rgba(255,255,255,0.05)';
+        }}
+      />
+    </div>
+  );
+}
+
+function MetricCard({ label, value, max, onChange }: any) {
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 12,
+      padding: 20,
+    }}>
+      <label style={{ 
+        display: 'block', 
+        fontSize: 12, 
+        fontWeight: 600, 
+        marginBottom: 12, 
+        opacity: 0.7,
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}>
+        {label}
+      </label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <input
+          type="range"
+          min={0}
+          max={max}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          style={{
+            flex: 1,
+            height: 6,
+            borderRadius: 3,
+            outline: 'none',
+            background: 'rgba(255,255,255,0.1)',
+          }}
+        />
+        <input
+          type="number"
+          min={0}
+          max={max}
+          value={value}
+          onChange={(e) => onChange(clamp(Number(e.target.value), 0, max))}
+          style={{
+            width: 60,
+            padding: 8,
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 6,
+            color: '#fff',
+            fontSize: 16,
+            fontWeight: 700,
+            textAlign: 'center',
+            outline: 'none',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ExerciseCard({ exercise, log, onUpdateLog }: any) {
+  const isPrimary = exercise.primary !== 'accessory';
+  
+  return (
+    <div style={{
+      background: isPrimary ? 'rgba(100,200,255,0.05)' : 'rgba(255,255,255,0.03)',
+      border: isPrimary ? '1px solid rgba(100,200,255,0.15)' : '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 12,
+      padding: 20,
+      transition: 'all 0.2s',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div style={{ flex: 1 }}>
+          <h3 style={{ 
+            margin: 0, 
+            fontSize: 18, 
+            fontWeight: 700,
+            color: isPrimary ? '#64c8ff' : '#fff',
+          }}>
+            {exercise.name}
+          </h3>
+          <p style={{ margin: '4px 0 0', fontSize: 13, opacity: 0.6 }}>
+            {exercise.muscleGroups.join(', ')}
+          </p>
+        </div>
+        <div style={{
+          padding: '6px 12px',
+          background: 'rgba(0,0,0,0.2)',
+          borderRadius: 6,
+          fontSize: 13,
+          fontWeight: 600,
+        }}>
+          {exercise.sets} × {exercise.reps}
+        </div>
+      </div>
+
+      {exercise.targetWeightLb && (
+        <div style={{
+          padding: '10px 14px',
+          background: 'rgba(0,0,0,0.2)',
+          borderRadius: 8,
+          marginBottom: 16,
+          fontSize: 14,
+          fontWeight: 600,
+        }}>
+          Target: <span style={{ color: '#64c8ff' }}>{exercise.targetWeightLb} lb</span>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+        <div>
+          <label style={{ display: 'block', fontSize: 11, opacity: 0.6, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Weight (lb)
+          </label>
+          <input
+            type="number"
+            value={log?.actualWeightLb ?? ''}
+            onChange={(e) => onUpdateLog({ actualWeightLb: e.target.value === '' ? undefined : Number(e.target.value) })}
+            placeholder={exercise.targetWeightLb || '—'}
+            style={{
+              width: '100%',
+              padding: 10,
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 6,
+              color: '#fff',
+              fontSize: 15,
+              fontWeight: 600,
+              outline: 'none',
+            }}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11, opacity: 0.6, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Reps (10,9,8...)
+          </label>
+          <input
+            type="text"
+            value={log?.actualReps ?? ''}
+            onChange={(e) => onUpdateLog({ actualReps: e.target.value })}
+            placeholder="10,9,8"
+            style={{
+              width: '100%',
+              padding: 10,
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 6,
+              color: '#fff',
+              fontSize: 15,
+              fontWeight: 600,
+              outline: 'none',
+            }}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11, opacity: 0.6, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            RPE (1-10)
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={log?.rpe ?? ''}
+            onChange={(e) => onUpdateLog({ rpe: e.target.value === '' ? undefined : clamp(Number(e.target.value), 1, 10) })}
+            placeholder="7"
+            style={{
+              width: '100%',
+              padding: 10,
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 6,
+              color: '#fff',
+              fontSize: 15,
+              fontWeight: 600,
+              outline: 'none',
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryCard({ session, isRecent, selectedLift }: { 
+  session: Session; 
+  isRecent: boolean;
+  selectedLift?: LiftKey | 'all';
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div style={{
+      background: isRecent ? 'rgba(100,200,255,0.05)' : 'rgba(255,255,255,0.03)',
+      border: isRecent ? '1px solid rgba(100,200,255,0.15)' : '1px solid rgba(255,255,255,0.08)',
+      borderRadius: 12,
+      overflow: 'hidden',
+    }}>
+      <div 
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          padding: 20,
+          cursor: 'pointer',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 }}>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+              {session.dayType}
+            </h3>
+            {isRecent && (
+              <span style={{
+                padding: '4px 10px',
+                background: 'rgba(100,200,255,0.2)',
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#64c8ff',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}>
+                Latest
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 16, fontSize: 13, opacity: 0.6, flexWrap: 'wrap' }}>
+            <span>{formatDate(session.dateISO)}</span>
+            <span>•</span>
+            <span>Energy: {session.energy}/5</span>
+            <span>•</span>
+            <span>Difficulty: {session.difficulty}/5</span>
+            {session.sleepHours && (
+              <>
+                <span>•</span>
+                <span>Sleep: {session.sleepHours}h</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div style={{ 
+          fontSize: 20, 
+          opacity: 0.5,
+          transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+          transition: 'transform 0.2s',
+        }}>
+          ▼
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{
+          padding: '0 20px 20px',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          marginTop: -10,
+          paddingTop: 20,
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {session.workout.map(ex => {
+              const isPrimary = ex.primary !== 'accessory';
+              const isSelected = selectedLift === 'all' || ex.primary === selectedLift;
+              
+              return (
+                <div 
+                  key={ex.id}
+                  style={{
+                    padding: 14,
+                    background: isSelected && isPrimary ? 'rgba(100,200,255,0.1)' : 'rgba(0,0,0,0.2)',
+                    border: isSelected && isPrimary ? '1px solid rgba(100,200,255,0.3)' : '1px solid transparent',
+                    borderRadius: 8,
+                    fontSize: 14,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{ex.name}</div>
+                  <div style={{ opacity: 0.6, fontSize: 12 }}>
+                    {ex.sets} × {ex.reps}
+                    {ex.targetWeightLb && (
+                      <span style={{ 
+                        marginLeft: 8,
+                        color: isSelected && isPrimary ? '#64c8ff' : 'inherit',
+                        fontWeight: isSelected && isPrimary ? 700 : 400,
+                      }}>
+                        @ {ex.targetWeightLb} lb
+                      </span>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
-        )}
-      </section>
-
-      {/* HISTORY */}
-      <section style={styles.card}>
-        <div style={styles.cardTitle}>Recent History</div>
-        {history.length === 0 ? (
-          <div style={styles.note}>No history yet. Load demo data or generate today’s workout.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {history.slice(0, 10).map(s => (
-              <div key={s.id} style={styles.historyRow}>
-                <div style={{ fontWeight: 700 }}>{formatDate(s.dateISO)} — {s.dayType}</div>
-                <div style={styles.muted}>Energy {s.energy}/5 · Difficulty {s.difficulty}/5 · {s.muscleGroups.join(', ')}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <footer style={styles.footer}>
-        Demo: Adaptive daily strength training MVP with workout generation, logging, and progression.
-      </footer>
+        </div>
+      )}
     </div>
   );
 }
-
-function isSameDay(aISO: string, bISO: string) {
-  const a = new Date(aISO);
-  const b = new Date(bISO);
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ fontSize: 12, opacity: 0.8 }}>{label}</div>
-      {children}
-    </div>
-  );
-}
-
-function FieldInline({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ fontSize: 12, opacity: 0.8 }}>{label}</div>
-      {children}
-    </div>
-  );
-}
-
-function Pill({ children }: { children: React.ReactNode }) {
-  return <div style={styles.pill}>{children}</div>;
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    maxWidth: 980,
-    margin: '0 auto',
-    padding: 20,
-    fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
-  },
-  header: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 16 },
-  headerRight: { display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' },
-  h1: { fontSize: 28, fontWeight: 800 },
-  sub: { opacity: 0.75, marginTop: 4 },
-  card: {
-    border: '1px solid rgba(0,0,0,0.12)',
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 14,
-    boxShadow: '0 6px 20px rgba(0,0,0,0.06)',
-  },
-  cardTitle: { fontWeight: 800, marginBottom: 10, fontSize: 16 },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 10 },
-  input: { padding: 10, borderRadius: 10, border: '1px solid rgba(0,0,0,0.2)', width: '100%' },
-  inputSmall: { padding: 8, borderRadius: 10, border: '1px solid rgba(0,0,0,0.2)', width: 80 },
-  inputSmallWide: { padding: 8, borderRadius: 10, border: '1px solid rgba(0,0,0,0.2)', width: 160 },
-  btn: { padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(0,0,0,0.2)', fontWeight: 700, cursor: 'pointer' },
-  btnSecondary: { padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(0,0,0,0.2)', opacity: 0.8, cursor: 'pointer', background: 'transparent' },
-  note: { marginTop: 10, opacity: 0.75 },
-  muted: { fontSize: 12, opacity: 0.7, marginTop: 2 },
-  pill: { border: '1px solid rgba(0,0,0,0.18)', padding: '6px 10px', borderRadius: 999, fontSize: 12, opacity: 0.9 },
-  table: { border: '1px solid rgba(0,0,0,0.12)', borderRadius: 12, overflow: 'hidden' },
-  tableHead: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: 10, fontWeight: 800, background: 'rgba(0,0,0,0.04)' },
-  tableRow: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: 10, borderTop: '1px solid rgba(0,0,0,0.08)', alignItems: 'center' },
-  logRow: { display: 'flex', gap: 12, padding: 12, border: '1px solid rgba(0,0,0,0.10)', borderRadius: 12 },
-  historyRow: { padding: 12, border: '1px solid rgba(0,0,0,0.10)', borderRadius: 12 },
-  toggleRow: { display: 'flex', alignItems: 'center', gap: 6, userSelect: 'none' },
-  footer: { marginTop: 18, opacity: 0.6, fontSize: 12 },
-};
