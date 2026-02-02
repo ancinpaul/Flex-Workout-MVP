@@ -757,19 +757,19 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateToday, onU
             label="Energy Level"
             value={today.energy}
             max={5}
-            onChange={(v) => onRegenerateWeights(v, today.difficulty, today.sleepHours)}
+           onChange={(v: number) => onRegenerateWeights(v, today.difficulty, today.sleepHours)}
           />
           <MetricCard 
             label="Difficulty"
             value={today.difficulty}
             max={5}
-            onChange={(v) => onRegenerateWeights(today.energy, v, today.sleepHours)}
+            onChange={(v: number) => onRegenerateWeights(today.energy, v, today.sleepHours)}
           />
           <MetricCard 
             label="Sleep (hours)"
             value={today.sleepHours ?? 0}
             max={12}
-            onChange={(v) => onRegenerateWeights(today.energy, today.difficulty, v || undefined)}
+            onChange={(v: number) => onRegenerateWeights(today.energy, today.difficulty, v || undefined)}
           />
         </div>
       </div>
@@ -783,7 +783,7 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateToday, onU
               key={ex.id}
               exercise={ex}
               log={log}
-              onUpdateLog={(patch) => onUpdateLog(ex.id, patch)}
+              onUpdateLog={(patch: Partial<ExerciseLog>) => onUpdateLog(ex.id, patch)}
             />
           );
         })}
@@ -1260,47 +1260,32 @@ function HistoryView({ history }: { history: Session[] }) {
   );
 }
 
-function InputField({ label, value, onChange, type = 'text' }: any) {
+type InputFieldProps = {
+  label: string;
+  value: string | number;
+  type?: string;
+  onChange: (value: string) => void;
+};
+
+function InputField({ label, value, onChange, type = 'text' }: InputFieldProps) {
   return (
-    <div>
-      <label style={{ 
-        display: 'block', 
-        fontSize: 12, 
-        fontWeight: 600, 
-        marginBottom: 8, 
-        opacity: 0.7,
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-      }}>
-        {label}
-      </label>
+    <label style={{ display: 'grid', gap: 6 }}>
+      <span style={{ fontSize: 12, opacity: 0.75 }}>{label}</span>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         style={{
-          width: '100%',
           padding: 12,
-          background: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 8,
-          color: '#fff',
-          fontSize: 14,
+          borderRadius: 12,
+          border: '1px solid rgba(0,0,0,0.15)',
           outline: 'none',
-          transition: 'all 0.2s',
-        }}
-        onFocus={(e) => {
-          e.target.style.borderColor = 'rgba(255,255,255,0.3)';
-          e.target.style.background = 'rgba(255,255,255,0.08)';
-        }}
-        onBlur={(e) => {
-          e.target.style.borderColor = 'rgba(255,255,255,0.1)';
-          e.target.style.background = 'rgba(255,255,255,0.05)';
         }}
       />
-    </div>
+    </label>
   );
 }
+
 
 function MetricCard({ label, value, max, onChange }: any) {
   return (
