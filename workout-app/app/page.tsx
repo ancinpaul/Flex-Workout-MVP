@@ -265,20 +265,21 @@ export default function Page() {
     // Generate ~8 weeks of workouts (roughly 4 sessions per week = ~32 sessions over 56 days)
     // We'll space them out realistically with rest days
     const workoutDays: number[] = [];
-    let day = 56; // Start 56 days ago
-    while (day > 0) {
+    let day = 1; // Start from most recent (1 day ago)
+    while (day <= 56) {
       workoutDays.push(day);
       // Random rest: 1-2 days between workouts, occasionally 3 (life happens)
       const rest = Math.random() < 0.15 ? 3 : Math.random() < 0.5 ? 2 : 1;
-      day -= rest;
+      day += rest;
     }
-    workoutDays.reverse(); // Oldest first for processing
+    // workoutDays is now [1, 3, 5, 7, ...] - most recent to oldest in terms of "days ago"
     
     const totalWorkouts = workoutDays.length;
     
     workoutDays.forEach((daysAgo, workoutIndex) => {
       const dayType = dayTypeOrder[workoutIndex % 4];
-      const progress = workoutIndex / totalWorkouts; // 0 to 1 progression
+      // Progress should be HIGH for recent (low daysAgo) and LOW for old (high daysAgo)
+      const progress = 1 - (daysAgo / 56); // 1 = today, 0 = 56 days ago
       
       // Simulate realistic variation in energy and sleep
       const energy = Math.random() < 0.1 ? 2 : Math.random() < 0.3 ? 3 : Math.random() < 0.7 ? 4 : 5;
@@ -352,8 +353,7 @@ export default function Page() {
       demoHistory.push(session);
     });
     
-    // Reverse so most recent is first
-    demoHistory.reverse();
+    // History should have most recent first (lowest daysAgo first), which it already is
     
     setStore({ setup: demoSetup, history: demoHistory });
     setActiveTab('history'); // Go to history to show off the chart
