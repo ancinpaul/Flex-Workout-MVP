@@ -239,35 +239,124 @@ export default function Page() {
       name: 'Demo Athlete', gender: 'Male', heightIn: 70, weightLb: 180, goal: 'Hypertrophy',
       fiveRM: { bench: 225, squat: 275, deadlift: 315, ohp: 135, row: 185 },
     };
-    /* FIX #2: Demo history order corrected - most recent first */
-    const demoHistory: Session[] = [
-      {
-        id: uid('sess'), dateISO: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString(),
-        dayType: 'Back & Biceps', muscleGroups: ['Back', 'Biceps'], energy: 3, difficulty: 4, sleepHours: 6,
-        workout: [
-          { id: uid('ex'), name: 'Barbell Row', primary: 'row', muscleGroups: ['Back'], sets: 4, reps: '6-10', targetWeightLb: 145 },
+    
+    // Generate 30 days of realistic workout history with progressive overload
+    const demoHistory: Session[] = [];
+    const dayTypeOrder: DayType[] = ['Chest & Triceps', 'Back & Biceps', 'Legs', 'Arms'];
+    
+    // Starting weights (slightly lower to show progression)
+    const startingWeights: Record<LiftKey, number> = {
+      bench: 155,
+      squat: 185,
+      deadlift: 225,
+      ohp: 85,
+      row: 135,
+    };
+    
+    // Target gains over 30 days (5-15 lbs per lift)
+    const totalGains: Record<LiftKey, number> = {
+      bench: 12.5,
+      squat: 15,
+      deadlift: 15,
+      ohp: 7.5,
+      row: 10,
+    };
+    
+    // Generate ~8 weeks of workouts (roughly 4 sessions per week = ~32 sessions over 56 days)
+    // We'll space them out realistically with rest days
+    const workoutDays: number[] = [];
+    let day = 56; // Start 56 days ago
+    while (day > 0) {
+      workoutDays.push(day);
+      // Random rest: 1-2 days between workouts, occasionally 3 (life happens)
+      const rest = Math.random() < 0.15 ? 3 : Math.random() < 0.5 ? 2 : 1;
+      day -= rest;
+    }
+    workoutDays.reverse(); // Oldest first for processing
+    
+    const totalWorkouts = workoutDays.length;
+    
+    workoutDays.forEach((daysAgo, workoutIndex) => {
+      const dayType = dayTypeOrder[workoutIndex % 4];
+      const progress = workoutIndex / totalWorkouts; // 0 to 1 progression
+      
+      // Simulate realistic variation in energy and sleep
+      const energy = Math.random() < 0.1 ? 2 : Math.random() < 0.3 ? 3 : Math.random() < 0.7 ? 4 : 5;
+      const sleepHours = Math.floor(Math.random() * 4) + 5; // 5-8 hours
+      const difficulty = energy <= 2 ? 4 : energy >= 4 ? 3 : Math.floor(Math.random() * 2) + 3;
+      
+      // Calculate weights with progression + small random variation
+      const getWeight = (lift: LiftKey): number => {
+        const base = startingWeights[lift];
+        const gain = totalGains[lift] * progress;
+        // Add small random variation (-2.5 to +2.5 lbs) for realism
+        const variation = (Math.random() - 0.5) * 5;
+        // Slightly lower weights on low energy days
+        const energyMod = energy <= 2 ? -5 : energy >= 5 ? 2.5 : 0;
+        return roundTo2_5(base + gain + variation + energyMod);
+      };
+      
+      let workout: Exercise[] = [];
+      let muscleGroups: string[] = [];
+      
+      if (dayType === 'Chest & Triceps') {
+        workout = [
+          { id: uid('ex'), name: 'Barbell Bench Press', primary: 'bench', muscleGroups: ['Chest', 'Triceps', 'Shoulders'], sets: 4, reps: '6-10', targetWeightLb: getWeight('bench') },
+          { id: uid('ex'), name: 'Incline Dumbbell Press', primary: 'accessory', muscleGroups: ['Chest'], sets: 3, reps: '8-12' },
+          { id: uid('ex'), name: 'Dips (Assisted if needed)', primary: 'accessory', muscleGroups: ['Chest', 'Triceps'], sets: 3, reps: '6-12' },
+          { id: uid('ex'), name: 'Triceps Rope Pushdown', primary: 'accessory', muscleGroups: ['Triceps'], sets: 3, reps: '10-15' },
+          { id: uid('ex'), name: 'Overhead Triceps Extension', primary: 'accessory', muscleGroups: ['Triceps'], sets: 3, reps: '10-15' },
+        ];
+        muscleGroups = ['Chest', 'Triceps', 'Shoulders'];
+      } else if (dayType === 'Back & Biceps') {
+        workout = [
+          { id: uid('ex'), name: 'Barbell Row', primary: 'row', muscleGroups: ['Back', 'Biceps'], sets: 4, reps: '6-10', targetWeightLb: getWeight('row') },
           { id: uid('ex'), name: 'Pull-Ups / Lat Pulldown', primary: 'accessory', muscleGroups: ['Back'], sets: 3, reps: '6-12' },
           { id: uid('ex'), name: 'Seated Cable Row', primary: 'accessory', muscleGroups: ['Back'], sets: 3, reps: '8-12' },
-          { id: uid('ex'), name: 'Face Pulls', primary: 'accessory', muscleGroups: ['Rear Delts'], sets: 3, reps: '12-15' },
+          { id: uid('ex'), name: 'Face Pulls', primary: 'accessory', muscleGroups: ['Rear Delts', 'Upper Back'], sets: 3, reps: '12-15' },
           { id: uid('ex'), name: 'Dumbbell Curls', primary: 'accessory', muscleGroups: ['Biceps'], sets: 3, reps: '10-15' },
-        ],
-        logs: [],
-      },
-      {
-        id: uid('sess'), dateISO: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
-        dayType: 'Chest & Triceps', muscleGroups: ['Chest', 'Shoulders', 'Triceps'], energy: 4, difficulty: 3, sleepHours: 7,
-        workout: [
-          { id: uid('ex'), name: 'Barbell Bench Press', primary: 'bench', muscleGroups: ['Chest', 'Triceps'], sets: 4, reps: '6-10', targetWeightLb: 175 },
-          { id: uid('ex'), name: 'Overhead Press', primary: 'ohp', muscleGroups: ['Shoulders'], sets: 3, reps: '6-10', targetWeightLb: 105 },
-          { id: uid('ex'), name: 'Incline Dumbbell Press', primary: 'accessory', muscleGroups: ['Chest'], sets: 3, reps: '8-12' },
+        ];
+        muscleGroups = ['Back', 'Biceps'];
+      } else if (dayType === 'Legs') {
+        workout = [
+          { id: uid('ex'), name: 'Back Squat', primary: 'squat', muscleGroups: ['Quads', 'Glutes'], sets: 4, reps: '5-8', targetWeightLb: getWeight('squat') },
+          { id: uid('ex'), name: 'Romanian Deadlift', primary: 'deadlift', muscleGroups: ['Hamstrings', 'Glutes'], sets: 3, reps: '6-10', targetWeightLb: getWeight('deadlift') },
+          { id: uid('ex'), name: 'Leg Press', primary: 'accessory', muscleGroups: ['Quads'], sets: 3, reps: '10-15' },
+          { id: uid('ex'), name: 'Hamstring Curl', primary: 'accessory', muscleGroups: ['Hamstrings'], sets: 3, reps: '10-15' },
+          { id: uid('ex'), name: 'Calf Raises', primary: 'accessory', muscleGroups: ['Calves'], sets: 3, reps: '12-20' },
+        ];
+        muscleGroups = ['Quads', 'Glutes', 'Hamstrings'];
+      } else {
+        workout = [
+          { id: uid('ex'), name: 'Overhead Press', primary: 'ohp', muscleGroups: ['Shoulders', 'Triceps'], sets: 4, reps: '6-10', targetWeightLb: getWeight('ohp') },
           { id: uid('ex'), name: 'Lateral Raises', primary: 'accessory', muscleGroups: ['Shoulders'], sets: 3, reps: '12-15' },
-          { id: uid('ex'), name: 'Triceps Rope Pushdown', primary: 'accessory', muscleGroups: ['Triceps'], sets: 3, reps: '10-15' },
-        ],
-        logs: [],
-      },
-    ];
+          { id: uid('ex'), name: 'Incline Dumbbell Curls', primary: 'accessory', muscleGroups: ['Biceps'], sets: 3, reps: '10-15' },
+          { id: uid('ex'), name: 'Skull Crushers', primary: 'accessory', muscleGroups: ['Triceps'], sets: 3, reps: '8-12' },
+          { id: uid('ex'), name: 'Hammer Curls', primary: 'accessory', muscleGroups: ['Biceps', 'Forearms'], sets: 3, reps: '10-15' },
+        ];
+        muscleGroups = ['Shoulders', 'Biceps', 'Triceps'];
+      }
+      
+      const session: Session = {
+        id: uid('sess'),
+        dateISO: new Date(Date.now() - daysAgo * 24 * 3600 * 1000).toISOString(),
+        dayType,
+        muscleGroups,
+        energy,
+        difficulty,
+        sleepHours,
+        workout,
+        logs: workout.map(w => ({ exerciseId: w.id })),
+      };
+      
+      demoHistory.push(session);
+    });
+    
+    // Reverse so most recent is first
+    demoHistory.reverse();
+    
     setStore({ setup: demoSetup, history: demoHistory });
-    setActiveTab('today');
+    setActiveTab('history'); // Go to history to show off the chart
   }
 
   function generateTodayWorkout(energy = 3, sleepHours?: number) {
