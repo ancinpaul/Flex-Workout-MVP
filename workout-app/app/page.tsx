@@ -486,8 +486,11 @@ function AboutView() {
         </div>
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 20 }}>
+          <p style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px' }}>
+            Built by Paul Ancin
+          </p>
           <p style={{ fontSize: 13, opacity: 0.5, margin: 0 }}>
-            Built with React & TypeScript
+            React & TypeScript
           </p>
         </div>
       </div>
