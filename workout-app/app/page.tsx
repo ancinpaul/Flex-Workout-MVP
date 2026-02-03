@@ -489,7 +489,23 @@ function AboutView() {
           <p style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px' }}>
             Built by Paul Ancin
           </p>
-          <p style={{ fontSize: 13, opacity: 0.5, margin: 0 }}>
+          <a 
+            href="https://www.linkedin.com/in/paul-ancin/" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            style={{ 
+              fontSize: 13, 
+              color: '#64c8ff', 
+              textDecoration: 'none',
+              opacity: 0.8,
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '0.8'}
+          >
+            Connect on LinkedIn →
+          </a>
+          <p style={{ fontSize: 13, opacity: 0.5, margin: '8px 0 0' }}>
             React & TypeScript
           </p>
         </div>
