@@ -409,6 +409,125 @@ function computeTargetWeightLb(args: { setup: Setup; history: Session[]; lift: L
 }
 
 // ============================================================================
+// ACCESSORY WEIGHT SUGGESTIONS
+// ============================================================================
+
+// Find the last time a user performed a specific exercise by name
+function findLastAccessoryPerformance(history: Session[], exerciseName: string): { session: Session; exercise: Exercise; log?: ExerciseLog } | null {
+  for (const s of history) {
+    for (const ex of s.workout) {
+      if (ex.name === exerciseName && ex.targetWeightLb) {
+        const log = s.logs.find(l => l.exerciseId === ex.id);
+        return { session: s, exercise: ex, log };
+      }
+    }
+  }
+  return null;
+}
+
+// Default weight ratios relative to primary lifts (conservative starting points)
+// These are percentages of the relevant primary lift's working weight
+const ACCESSORY_DEFAULTS: Record<string, { relativeTo: LiftKey; ratio: number; minWeight: number; isPerDumbbell?: boolean }> = {
+  // Chest & Triceps accessories
+  'Incline Dumbbell Press': { relativeTo: 'bench', ratio: 0.35, minWeight: 20, isPerDumbbell: true },
+  'Dips (Assisted if needed)': { relativeTo: 'bench', ratio: 0, minWeight: 0 }, // Bodyweight, 0 = BW
+  'Triceps Rope Pushdown': { relativeTo: 'bench', ratio: 0.25, minWeight: 20 },
+  'Overhead Triceps Extension': { relativeTo: 'bench', ratio: 0.20, minWeight: 15 },
+  
+  // Back & Biceps accessories
+  'Pull-Ups / Lat Pulldown': { relativeTo: 'row', ratio: 0.65, minWeight: 60 },
+  'Seated Cable Row': { relativeTo: 'row', ratio: 0.55, minWeight: 50 },
+  'Face Pulls': { relativeTo: 'row', ratio: 0.25, minWeight: 20 },
+  'Dumbbell Curls': { relativeTo: 'row', ratio: 0.15, minWeight: 15, isPerDumbbell: true },
+  
+  // Leg accessories
+  'Romanian Deadlift': { relativeTo: 'deadlift', ratio: 0.50, minWeight: 95 },
+  'Leg Press': { relativeTo: 'squat', ratio: 1.2, minWeight: 90 },
+  'Hamstring Curl': { relativeTo: 'squat', ratio: 0.25, minWeight: 40 },
+  'Calf Raises': { relativeTo: 'squat', ratio: 0.40, minWeight: 50 },
+  
+  // Arms day accessories
+  'Lateral Raises': { relativeTo: 'ohp', ratio: 0.15, minWeight: 10, isPerDumbbell: true },
+  'Incline Dumbbell Curls': { relativeTo: 'row', ratio: 0.12, minWeight: 12, isPerDumbbell: true },
+  'Skull Crushers': { relativeTo: 'bench', ratio: 0.30, minWeight: 30 },
+  'Hammer Curls': { relativeTo: 'row', ratio: 0.15, minWeight: 15, isPerDumbbell: true },
+};
+
+function computeAccessoryWeightLb(args: {
+  setup: Setup;
+  history: Session[];
+  exerciseName: string;
+  currentEnergy?: number;
+  currentSleep?: number;
+}): number | undefined {
+  const { setup, history, exerciseName, currentEnergy = 3, currentSleep } = args;
+  
+  // Get default config for this exercise
+  const defaultConfig = ACCESSORY_DEFAULTS[exerciseName];
+  
+  // Skip bodyweight exercises (ratio = 0)
+  if (defaultConfig && defaultConfig.ratio === 0) {
+    return undefined;
+  }
+  
+  // Session modifiers (same logic as primary lifts but smaller increments for accessories)
+  let sessionModifier = 0;
+  if (currentEnergy <= 2) sessionModifier -= 2.5;
+  else if (currentEnergy >= 4) sessionModifier += 2.5;
+  if (currentSleep !== undefined) {
+    if (currentSleep < 6) sessionModifier -= 2.5;
+    else if (currentSleep >= 8) sessionModifier += 2.5;
+  }
+  
+  // First, check if user has done this exercise before
+  const lastPerformance = findLastAccessoryPerformance(history, exerciseName);
+  
+  if (lastPerformance?.exercise?.targetWeightLb) {
+    const lastW = lastPerformance.exercise.targetWeightLb;
+    const lastDifficulty = lastPerformance.session.difficulty;
+    const lastEnergy = lastPerformance.session.energy;
+    
+    // Progressive overload logic (smaller increments for accessories)
+    let bump = 0;
+    if (lastDifficulty <= 2 && lastEnergy >= 4) bump = 2.5; // Easy last time, bump up
+    else if (lastDifficulty === 3) bump = 0; // Just right, maintain
+    else if (lastDifficulty >= 4 || lastEnergy <= 2) bump = -2.5; // Too hard, reduce
+    
+    let target = lastW + bump + sessionModifier;
+    
+    // Ensure minimum weight
+    const minWeight = defaultConfig?.minWeight || 10;
+    target = Math.max(target, minWeight);
+    
+    return roundTo2_5(target);
+  }
+  
+  // No history - calculate smart default based on primary lift strength
+  if (defaultConfig) {
+    const primaryLiftWeight = setup.fiveRM[defaultConfig.relativeTo] || 0;
+    if (primaryLiftWeight === 0) return undefined;
+    
+    // Calculate base weight from primary lift
+    let baseWeight = primaryLiftWeight * defaultConfig.ratio;
+    
+    // Apply goal modifier
+    if (setup.goal === 'Strength') baseWeight *= 1.1;
+    else if (setup.goal === 'Health') baseWeight *= 0.85;
+    
+    // Apply session modifier
+    baseWeight += sessionModifier;
+    
+    // Ensure minimum
+    baseWeight = Math.max(baseWeight, defaultConfig.minWeight);
+    
+    return roundTo2_5(baseWeight);
+  }
+  
+  // Unknown exercise - no suggestion
+  return undefined;
+}
+
+// ============================================================================
 // STORAGE FUNCTIONS
 // ============================================================================
 
@@ -752,9 +871,21 @@ export default function Page() {
     const dayType = nextDayType;
     const template = baseWorkoutTemplate(dayType);
     const workout = template.map(ex => {
+      // Primary lifts
       if (ex.primary === 'bench' || ex.primary === 'squat' || ex.primary === 'deadlift' || ex.primary === 'ohp' || ex.primary === 'row') {
         const targetWeightLb = computeTargetWeightLb({ setup, history, lift: ex.primary, dayType, currentEnergy: energy, currentSleep: sleepHours });
         return { ...ex, targetWeightLb };
+      }
+      // Accessory exercises
+      const accessoryWeight = computeAccessoryWeightLb({
+        setup,
+        history,
+        exerciseName: ex.name,
+        currentEnergy: energy,
+        currentSleep: sleepHours,
+      });
+      if (accessoryWeight !== undefined) {
+        return { ...ex, targetWeightLb: accessoryWeight };
       }
       return ex;
     });
@@ -778,9 +909,21 @@ export default function Page() {
   function regenerateWorkoutWeights(energy: number, difficulty: number, sleepHours?: number) {
     if (!today || !setup) return;
     const updatedWorkout = today.workout.map(ex => {
+      // Primary lifts
       if (ex.primary === 'bench' || ex.primary === 'squat' || ex.primary === 'deadlift' || ex.primary === 'ohp' || ex.primary === 'row') {
         const targetWeightLb = computeTargetWeightLb({ setup, history: history.slice(1), lift: ex.primary, dayType: today.dayType, currentEnergy: energy, currentSleep: sleepHours });
         return { ...ex, targetWeightLb };
+      }
+      // Accessory exercises
+      const accessoryWeight = computeAccessoryWeightLb({
+        setup,
+        history: history.slice(1),
+        exerciseName: ex.name,
+        currentEnergy: energy,
+        currentSleep: sleepHours,
+      });
+      if (accessoryWeight !== undefined) {
+        return { ...ex, targetWeightLb: accessoryWeight };
       }
       return ex;
     });
@@ -2431,6 +2574,9 @@ function MetricCard({ label, value, max, onChange }: MetricCardProps) {
 interface ExerciseCardProps { exercise: Exercise; log?: ExerciseLog; onUpdateLog: (patch: Partial<ExerciseLog>) => void; }
 function ExerciseCard({ exercise, log, onUpdateLog }: ExerciseCardProps) {
   const isPrimary = exercise.primary !== 'accessory';
+  const isDumbbell = exercise.name.toLowerCase().includes('dumbbell') || 
+                     exercise.name.toLowerCase().includes('lateral raise') ||
+                     exercise.name.toLowerCase().includes('hammer curl');
   const inputStyle: React.CSSProperties = { width: '100%', padding: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', fontSize: 15, fontWeight: 600, outline: 'none', boxSizing: 'border-box' as const };
   return (
     <div style={{ background: isPrimary ? 'rgba(100,200,255,0.05)' : 'rgba(255,255,255,0.03)', border: isPrimary ? '1px solid rgba(100,200,255,0.15)' : '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20, transition: 'all 0.2s' }}>
@@ -2438,9 +2584,14 @@ function ExerciseCard({ exercise, log, onUpdateLog }: ExerciseCardProps) {
         <div style={{ flex: 1 }}><h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: isPrimary ? '#64c8ff' : '#fff' }}>{exercise.name}</h3><p style={{ margin: '4px 0 0', fontSize: 13, opacity: 0.6, color: '#fff' }}>{exercise.muscleGroups.join(', ')}</p></div>
         <div style={{ padding: '6px 12px', background: 'rgba(0,0,0,0.2)', borderRadius: 6, fontSize: 13, fontWeight: 600, color: '#fff' }}>{exercise.sets} × {exercise.reps}</div>
       </div>
-      {exercise.targetWeightLb && <div style={{ padding: '10px 14px', background: 'rgba(0,0,0,0.2)', borderRadius: 8, marginBottom: 16, fontSize: 14, fontWeight: 600, color: '#fff' }}>Target: <span style={{ color: '#64c8ff' }}>{exercise.targetWeightLb} lb</span></div>}
+      {exercise.targetWeightLb !== undefined && (
+        <div style={{ padding: '10px 14px', background: 'rgba(0,0,0,0.2)', borderRadius: 8, marginBottom: 16, fontSize: 14, fontWeight: 600, color: '#fff' }}>
+          Target: <span style={{ color: '#64c8ff' }}>{exercise.targetWeightLb} lb</span>
+          {isDumbbell && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.6 }}>(per dumbbell)</span>}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-        <div><label style={{ display: 'block', fontSize: 11, opacity: 0.6, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#fff' }}>Weight (lb)</label><input type="number" value={log?.actualWeightLb ?? ''} onChange={(e) => onUpdateLog({ actualWeightLb: e.target.value === '' ? undefined : Number(e.target.value) })} placeholder={exercise.targetWeightLb?.toString() || '—'} style={inputStyle} /></div>
+        <div><label style={{ display: 'block', fontSize: 11, opacity: 0.6, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#fff' }}>Weight (lb){isDumbbell && ' each'}</label><input type="number" value={log?.actualWeightLb ?? ''} onChange={(e) => onUpdateLog({ actualWeightLb: e.target.value === '' ? undefined : Number(e.target.value) })} placeholder={exercise.targetWeightLb?.toString() || '—'} style={inputStyle} /></div>
         <div><label style={{ display: 'block', fontSize: 11, opacity: 0.6, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#fff' }}>Reps (10,9,8...)</label><input type="text" value={log?.actualReps ?? ''} onChange={(e) => onUpdateLog({ actualReps: e.target.value })} placeholder="10,9,8" style={inputStyle} /></div>
         <div><label style={{ display: 'block', fontSize: 11, opacity: 0.6, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#fff' }}>RPE (1-10)</label><input type="number" min={1} max={10} value={log?.rpe ?? ''} onChange={(e) => onUpdateLog({ rpe: e.target.value === '' ? undefined : clamp(Number(e.target.value), 1, 10) })} placeholder="7" style={inputStyle} /></div>
       </div>
