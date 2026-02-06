@@ -298,9 +298,18 @@ function calculateVolumeTrends(history: Session[], weeks: number = 8): Array<{ w
     weeklyData[weekKey].workouts += 1;
   });
   
-  // Convert to array and sort by date
+  // Convert to array and sort by date (oldest to newest for proper chart display)
   return Object.entries(weeklyData)
     .map(([week, data]) => ({ week, ...data }))
+    .sort((a, b) => {
+      // Parse week format "W## YYYY" to compare chronologically
+      const parseWeek = (w: string) => {
+        const match = w.match(/W(\d+)\s+(\d+)/);
+        if (!match) return 0;
+        return parseInt(match[2]) * 100 + parseInt(match[1]);
+      };
+      return parseWeek(a.week) - parseWeek(b.week);
+    })
     .slice(-weeks);
 }
 
@@ -790,17 +799,20 @@ export default function Page() {
       day += rest;
     }
     
-    workoutDays.forEach((daysAgo, workoutIndex) => {
+  workoutDays.forEach((daysAgo, workoutIndex) => {
       const dayType = dayTypeOrder[workoutIndex % 4];
-      const progress = 1 - (daysAgo / 56);
+      // Progress goes from 0 (oldest, 56 days ago) to 1 (most recent, 1 day ago)
+      // This ensures weights INCREASE over time when viewed chronologically
+      const progress = daysAgo / 56;
       
       const energy = Math.random() < 0.1 ? 2 : Math.random() < 0.3 ? 3 : Math.random() < 0.7 ? 4 : 5;
       const sleepHours = Math.floor(Math.random() * 4) + 5;
       const difficulty = energy <= 2 ? 4 : energy >= 4 ? 3 : Math.floor(Math.random() * 2) + 3;
       
-      const getWeight = (lift: LiftKey): number => {
+     const getWeight = (lift: LiftKey): number => {
         const base = startingWeights[lift];
-        const gain = totalGains[lift] * progress;
+        // Gains increase as progress increases (closer to present = more gains)
+        const gain = totalGains[lift] * (1 - progress);
         const variation = (Math.random() - 0.5) * 5;
         const energyMod = energy <= 2 ? -5 : energy >= 5 ? 2.5 : 0;
         return roundTo2_5(base + gain + variation + energyMod);
@@ -2247,8 +2259,16 @@ function VolumeTrendsChart({ history }: { history: Session[] }) {
           {volumeData.map((d, i) => (
             <g key={i}>
               <circle cx={xScale(i)} cy={yScale(d.volume)} r={6} fill="#6bcb77" stroke="#1a1a1a" strokeWidth={2} />
-              <text x={xScale(i)} y={chartHeight - padding.bottom + 20} fill="rgba(255,255,255,0.5)" fontSize={10} textAnchor="middle">
-                {d.week.replace(/W\d+ /, '')}
+             <text x={xScale(i)} y={chartHeight - padding.bottom + 20} fill="rgba(255,255,255,0.5)" fontSize={10} textAnchor="middle">
+                {(() => {
+                  const match = d.week.match(/W(\d+)\s+(\d+)/);
+                  if (!match) return d.week;
+                  const weekNum = parseInt(match[1]);
+                  const year = match[2];
+                  // Approximate month from week number (week 1-4 = Jan, 5-8 = Feb, etc.)
+                  const month = Math.min(12, Math.ceil(weekNum / 4.33));
+                  return `${month.toString().padStart(2, '0')}/${year}`;
+                })()}
               </text>
               <text x={xScale(i)} y={chartHeight - padding.bottom + 32} fill="rgba(255,255,255,0.4)" fontSize={9} textAnchor="middle">
                 {d.workouts} wkts
