@@ -47,6 +47,7 @@ type Session = {
   sleepHours?: number;
   workout: Exercise[];
   logs: ExerciseLog[];
+  completed?: boolean;
 };
 
 // NEW: User Profile type for multi-user support
@@ -905,6 +906,7 @@ export default function Page() {
     const session: Session = {
       id: uid('sess'), dateISO: new Date().toISOString(), dayType, muscleGroups, energy, difficulty: 3, sleepHours, workout,
       logs: workout.map(w => ({ exerciseId: w.id })),
+      completed: false,
     };
     updateActiveProfile({ history: [session, ...history] });
     setActiveTab('today');
@@ -942,11 +944,18 @@ export default function Page() {
     updateToday({ workout: updatedWorkout, energy, difficulty, sleepHours });
   }
 
-  function updateExerciseLog(exId: string, patch: Partial<ExerciseLog>) {
+ function updateExerciseLog(exId: string, patch: Partial<ExerciseLog>) {
     if (!today) return;
     const logs = today.logs.map(l => (l.exerciseId === exId ? { ...l, ...patch } : l));
     updateToday({ logs });
   }
+
+  function markWorkoutComplete(completed: boolean) {
+    if (!today) return;
+    updateToday({ completed });
+  }
+
+  function resetAll() {
 
   function resetAll() {
     if (typeof window !== 'undefined') {
@@ -1295,6 +1304,7 @@ export default function Page() {
             onGenerate={generateTodayWorkout}
             onUpdateLog={updateExerciseLog}
             onRegenerateWeights={regenerateWorkoutWeights}
+            onMarkComplete={markWorkoutComplete}
             hasSetup={!!setup}
           />
         )}
@@ -1942,10 +1952,24 @@ interface TodayViewProps {
   onGenerate: (energy?: number, sleepHours?: number) => void;
   onUpdateLog: (exId: string, patch: Partial<ExerciseLog>) => void;
   onRegenerateWeights: (energy: number, difficulty: number, sleepHours?: number) => void;
+  onMarkComplete: (completed: boolean) => void;
   hasSetup: boolean;
 }
 
-function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onRegenerateWeights, hasSetup }: TodayViewProps) {
+function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onRegenerateWeights, onMarkComplete, hasSetup }: TodayViewProps) {
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+
+  const completionStats = useMemo(() => {
+    if (!today) return { logged: 0, total: 0, percentage: 0 };
+    const total = today.workout.length;
+    const logged = today.logs.filter(log => 
+      log.actualWeightLb !== undefined || log.actualReps !== undefined || log.rpe !== undefined
+    ).length;
+    return { logged, total, percentage: Math.round((logged / total) * 100) };
+  }, [today]);
+
+  const isCompleted = today?.completed || false;
+
   if (!today) {
     return (
       <div style={{ maxWidth: 600, margin: '120px auto', textAlign: 'center' }}>
@@ -1959,16 +1983,55 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onReg
       </div>
     );
   }
-  return (
+ return (
     <div>
       <div style={{ background: 'linear-gradient(135deg, rgba(100,200,255,0.1) 0%, rgba(150,100,255,0.1) 100%)', border: '1px solid rgba(100,200,255,0.2)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 28, fontWeight: 800, color: '#fff' }}>{today.dayType}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 28, fontWeight: 800, color: '#fff' }}>{today.dayType}</h2>
+              {isCompleted && (
+                <span style={{ 
+                  padding: '6px 12px', 
+                  background: 'rgba(107,203,119,0.2)', 
+                  border: '1px solid rgba(107,203,119,0.4)',
+                  borderRadius: 8, 
+                  fontSize: 12, 
+                  fontWeight: 700, 
+                  color: '#6bcb77',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }}>
+                  ✓ Completed
+                </span>
+              )}
+            </div>
             <p style={{ margin: '6px 0 0', opacity: 0.7, fontSize: 14, color: '#fff' }}>{today.muscleGroups.join(' • ')}</p>
           </div>
           <div style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#fff' }}>~60 min</div>
         </div>
+        
+        {/* Progress indicator */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, opacity: 0.7, color: '#fff' }}>Logging Progress</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: completionStats.percentage === 100 ? '#6bcb77' : '#64c8ff' }}>
+              {completionStats.logged}/{completionStats.total} exercises logged
+            </span>
+          </div>
+          <div style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ 
+              height: '100%', 
+              width: `${completionStats.percentage}%`, 
+              background: completionStats.percentage === 100 
+                ? 'linear-gradient(90deg, #6bcb77, #4ade80)' 
+                : 'linear-gradient(90deg, #64c8ff, #4d96ff)',
+              borderRadius: 3,
+              transition: 'width 0.3s ease'
+            }} />
+          </div>
+        </div>
+        
         {history.length > 1 && (
           <div style={{ padding: 16, background: 'rgba(0,0,0,0.2)', borderRadius: 10, fontSize: 13, lineHeight: 1.6, opacity: 0.9, color: '#fff' }}>
             Last workout: <strong>{history[1].dayType}</strong> ({Math.max(1, Math.round((Date.now() - new Date(history[1].dateISO).getTime()) / (1000 * 60 * 60 * 24)))} days ago) — Difficulty {history[1].difficulty}/5, Energy {history[1].energy}/5
@@ -1983,13 +2046,125 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onReg
           <MetricCard label="Energy Level" value={today.energy} max={5} onChange={(v: number) => onRegenerateWeights(v, today.difficulty, today.sleepHours)} />
           <MetricCard label="Difficulty" value={today.difficulty} max={5} onChange={(v: number) => onRegenerateWeights(today.energy, v, today.sleepHours)} />
           <MetricCard label="Sleep (hours)" value={today.sleepHours ?? 0} max={12} onChange={(v: number) => onRegenerateWeights(today.energy, today.difficulty, v || undefined)} />
-        </div>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {today.workout.map((ex: Exercise) => {
           const log = today.logs.find((l: ExerciseLog) => l.exerciseId === ex.id);
           return <ExerciseCard key={ex.id} exercise={ex} log={log} onUpdateLog={(patch: Partial<ExerciseLog>) => onUpdateLog(ex.id, patch)} />;
         })}
+      </div>
+
+      {/* Save/Complete Workout Section */}
+      <div style={{ 
+        marginTop: 32, 
+        padding: 24, 
+        background: isCompleted 
+          ? 'rgba(107,203,119,0.08)' 
+          : 'rgba(100,200,255,0.05)', 
+        border: isCompleted 
+          ? '1px solid rgba(107,203,119,0.2)' 
+          : '1px solid rgba(100,200,255,0.15)', 
+        borderRadius: 16 
+      }}>
+        {showSaveConfirm ? (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🎉</div>
+            <h3 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 700, color: '#6bcb77' }}>Workout Saved!</h3>
+            <p style={{ margin: '0 0 20px', fontSize: 14, opacity: 0.7, color: '#fff' }}>
+              Your workout has been recorded and saved to your history.
+            </p>
+            <button
+              onClick={() => setShowSaveConfirm(false)}
+              style={{
+                padding: '12px 24px',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 10,
+                color: '#fff',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Continue Editing
+            </button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <span style={{ fontSize: 24 }}>{isCompleted ? '✅' : '💾'}</span>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#fff' }}>
+                  {isCompleted ? 'Workout Completed' : 'Save Your Workout'}
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: 13, opacity: 0.7, color: '#fff' }}>
+                  {isCompleted 
+                    ? 'This workout has been saved to your history. You can still edit the details.' 
+                    : 'Your data is auto-saved as you type. Mark as complete when finished.'}
+                </p>
+              </div>
+            </div>
+            
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {!isCompleted ? (
+                <button
+                  onClick={() => {
+                    onMarkComplete(true);
+                    setShowSaveConfirm(true);
+                  }}
+                  style={{
+                    padding: '14px 28px',
+                    background: 'linear-gradient(135deg, #6bcb77 0%, #4ade80 100%)',
+                    border: 'none',
+                    borderRadius: 10,
+                    color: '#000',
+                    fontSize: 15,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>✓</span> Mark Workout Complete
+                </button>
+              ) : (
+                <button
+                  onClick={() => onMarkComplete(false)}
+                  style={{
+                    padding: '14px 28px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 10,
+                    color: '#fff',
+                    fontSize: 15,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span>↩</span> Mark as Incomplete
+                </button>
+              )}
+              
+              <div style={{ 
+                padding: '14px 20px', 
+                background: 'rgba(0,0,0,0.2)', 
+                borderRadius: 10, 
+                fontSize: 13, 
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                opacity: 0.8,
+              }}>
+                <span>💡</span>
+                <span>Data auto-saves to localStorage</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
