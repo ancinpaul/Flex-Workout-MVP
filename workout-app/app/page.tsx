@@ -908,7 +908,8 @@ export default function Page() {
       logs: workout.map(w => ({ exerciseId: w.id })),
       completed: false,
     };
-    updateActiveProfile({ history: [session, ...history] });
+   const filteredHistory = history[0] && isSameDay(history[0].dateISO, new Date().toISOString()) ? history.slice(1) : history;
+    updateActiveProfile({ history: [session, ...filteredHistory] });
     setActiveTab('today');
   }
 
@@ -2006,7 +2007,11 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onReg
             </div>
             <p style={{ margin: '6px 0 0', opacity: 0.7, fontSize: 14, color: '#fff' }}>{today.muscleGroups.join(' • ')}</p>
           </div>
-          <div style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#fff' }}>~60 min</div>
+         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#fff' }}>~60 min</div>
+            <button onClick={() => onGenerate()} style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#64c8ff', cursor: 'pointer', transition: 'all 0.2s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(100,200,255,0.15)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}>+ New Workout</button>
+          </div>
         </div>
         
         {/* Progress indicator */}
