@@ -2043,8 +2043,10 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onReg
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
           <MetricCard label="Energy Level" value={today.energy} max={5} onChange={(v: number) => onRegenerateWeights(v, today.difficulty, today.sleepHours)} />
           <MetricCard label="Difficulty" value={today.difficulty} max={5} onChange={(v: number) => onRegenerateWeights(today.energy, v, today.sleepHours)} />
-          <MetricCard label="Sleep (hours)" value={today.sleepHours ?? 0} max={12} onChange={(v: number) => onRegenerateWeights(today.energy, today.difficulty, v || undefined)} />
-       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <MetricCard label="Sleep (hours)" value={today.sleepHours ?? 0} max={12} onChange={(v: number) => onRegenerateWeights(today.energy, today.difficulty, v || undefined)} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {today.workout.map((ex: Exercise) => (
   <ExerciseCard
     key={ex.id}
@@ -2171,6 +2173,7 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onReg
       </div>
     </div>
   );
+}
 
 function extractProgressData(history: Session[], selectedDayType: DayType | 'all', selectedLift: LiftKey | 'all') {
   const data: Array<{ date: string; dateISO: string; dayType: DayType; lift: LiftKey; liftName: string; weight: number; energy: number; difficulty: number; }> = [];
