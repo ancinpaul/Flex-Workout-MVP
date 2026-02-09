@@ -2168,7 +2168,6 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onReg
       </div>
     </div>
   );
-}
 
 function extractProgressData(history: Session[], selectedDayType: DayType | 'all', selectedLift: LiftKey | 'all') {
   const data: Array<{ date: string; dateISO: string; dayType: DayType; lift: LiftKey; liftName: string; weight: number; energy: number; difficulty: number; }> = [];
