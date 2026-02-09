@@ -956,8 +956,6 @@ export default function Page() {
   }
 
   function resetAll() {
-
-  function resetAll() {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(LS_KEY);
       window.localStorage.removeItem(OLD_LS_KEY);
