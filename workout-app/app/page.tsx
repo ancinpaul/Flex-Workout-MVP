@@ -2047,10 +2047,15 @@ function TodayView({ today, nextDayType, history, onGenerate, onUpdateLog, onReg
           <MetricCard label="Difficulty" value={today.difficulty} max={5} onChange={(v: number) => onRegenerateWeights(today.energy, v, today.sleepHours)} />
           <MetricCard label="Sleep (hours)" value={today.sleepHours ?? 0} max={12} onChange={(v: number) => onRegenerateWeights(today.energy, today.difficulty, v || undefined)} />
        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {today.workout.map((ex: Exercise) => {
-          const log = today.logs.find((l: ExerciseLog) => l.exerciseId === ex.id);
-          return <ExerciseCard key={ex.id} exercise={ex} log={log} onUpdateLog={(patch: Partial<ExerciseLog>) => onUpdateLog(ex.id, patch)} />;
-        })}
+        {today.workout.map((ex: Exercise) => (
+  <ExerciseCard
+    key={ex.id}
+    exercise={ex}
+    log={today.logs.find((l: ExerciseLog) => l.exerciseId === ex.id)}
+    onUpdateLog={(patch: Partial<ExerciseLog>) => onUpdateLog(ex.id, patch)}
+  />
+))}
+
       </div>
 
       {/* Save/Complete Workout Section */}
