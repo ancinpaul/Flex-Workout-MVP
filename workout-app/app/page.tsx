@@ -476,6 +476,35 @@ const updateRestTimerPrefs = useCallback((prefs: RestTimerPreferences) => {
   }
   function updateExerciseLog(exId:string,patch:Partial<ExerciseLog>){if(!today)return;updateToday({logs:today.logs.map(l=>l.exerciseId===exId?{...l,...patch}:l)});}
 
+  function addExerciseToToday(exercise: Exercise) {
+    if (!today) return;
+    updateToday({
+      workout: [...today.workout, exercise],
+      logs: [...today.logs, { exerciseId: exercise.id }],
+      muscleGroups: Array.from(new Set([...today.muscleGroups, ...exercise.muscleGroups])),
+    });
+  }
+  function editExerciseInToday(exId: string, patch: Partial<Exercise>) {
+    if (!today) return;
+    updateToday({ workout: today.workout.map(ex => ex.id === exId ? { ...ex, ...patch } : ex) });
+  }
+  function deleteExerciseFromToday(exId: string) {
+    if (!today) return;
+    updateToday({
+      workout: today.workout.filter(ex => ex.id !== exId),
+      logs: today.logs.filter(l => l.exerciseId !== exId),
+    });
+  }
+  function reorderExerciseInToday(fromIdx: number, toIdx: number) {
+    if (!today) return;
+    const wo = [...today.workout];
+    const [moved] = wo.splice(fromIdx, 1);
+    wo.splice(toIdx, 0, moved);
+    const logs = [...today.logs];
+    const [movedLog] = logs.splice(fromIdx, 1);
+    logs.splice(toIdx, 0, movedLog);
+    updateToday({ workout: wo, logs });
+  }
   function applyDemoData(){if(!activeProfile)return;const{setup:ds,history:dh}=generateDemoData(activeProfile.displayName);updateActiveProfile({setup:ds,history:dh});setActiveTab('progress');}
   function resetAll(){if(typeof window!=='undefined'){window.localStorage.removeItem(LS_KEY);window.localStorage.removeItem(OLD_LS_KEY);}setAppState({profiles:[],activeProfileId:null});setShowProfileSelector(true);}
   function exportProfileData(){
@@ -523,7 +552,7 @@ const updateRestTimerPrefs = useCallback((prefs: RestTimerPreferences) => {
         </div>
       </header>
       <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
-        {activeTab==='today' && <TodayView today={today} nextDayType={nextDayType} history={history} setup={setup} onGenerate={()=>setShowCheckin(true)} onUpdateLog={updateExerciseLog} onRegenerateWeights={regenerateWorkoutWeights} onMarkComplete={(c)=>updateToday({completed:c})} restTimerPrefs={restTimerPrefs} />}
+        {activeTab==='today' && <TodayView today={today} nextDayType={nextDayType} history={history} setup={setup} onGenerate={()=>setShowCheckin(true)} onUpdateLog={updateExerciseLog} onRegenerateWeights={regenerateWorkoutWeights} onMarkComplete={(c)=>updateToday({completed:c})} restTimerPrefs={restTimerPrefs} onAddExercise={addExerciseToToday} onEditExercise={editExerciseInToday} onDeleteExercise={deleteExerciseFromToday} onReorderExercise={reorderExerciseInToday} />}
         {activeTab==='progress' && <ProgressView history={history} />}
         {activeTab==='profile' && <ProfileView profile={activeProfile} draftSetup={draftSetup} setDraftSetup={setDraftSetup} onSaveSetup={()=>updateActiveProfile({setup:draftSetup,displayName:draftSetup.name||activeProfile?.displayName||'User'})} onLoadDemo={applyDemoData} onExport={exportProfileData} onImport={handleImportData} onReset={resetAll} restTimerPrefs={restTimerPrefs} onUpdateRestPrefs={updateRestTimerPrefs} />}
       </main>
@@ -841,14 +870,168 @@ function RestTimerSettings({ prefs, onChange }: {
 }
 
 // ============================================================================
+// EXERCISE EDITOR MODALS
+// ============================================================================
+
+const COMMON_MUSCLE_GROUPS = ['Chest','Back','Shoulders','Biceps','Triceps','Quads','Hamstrings','Glutes','Calves','Core','Forearms','Rear Delts','Upper Back','Traps'];
+
+function AddExerciseModal({ onAdd, onClose }: { onAdd: (ex: Exercise) => void; onClose: () => void }) {
+  const [name, setName] = useState('');
+  const [sets, setSets] = useState(3);
+  const [reps, setReps] = useState('8-12');
+  const [weight, setWeight] = useState('');
+  const [muscles, setMuscles] = useState<string[]>([]);
+
+  function handleAdd() {
+    if (!name.trim()) return;
+    onAdd({
+      id: uid('ex'),
+      name: name.trim(),
+      primary: 'accessory',
+      muscleGroups: muscles.length > 0 ? muscles : ['Other'],
+      sets,
+      reps,
+      targetWeightLb: weight ? Number(weight) : undefined,
+    });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6 animate-fade-in" onClick={onClose}>
+      <div className="w-full sm:max-w-md bg-surface-card border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 max-h-[85dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-heading text-white">Add Exercise</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-white/40 hover:text-white/70 text-xl">×</button>
+        </div>
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="field-label">Exercise Name</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Cable Lateral Raise" autoFocus className="input-dark" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="field-label">Sets</label>
+              <input type="number" value={sets} onChange={e => setSets(Math.max(1, Number(e.target.value)))} min={1} className="input-dark text-center" />
+            </div>
+            <div>
+              <label className="field-label">Reps</label>
+              <input type="text" value={reps} onChange={e => setReps(e.target.value)} placeholder="8-12" className="input-dark text-center" />
+            </div>
+            <div>
+              <label className="field-label">Weight (lb)</label>
+              <input type="number" value={weight} onChange={e => setWeight(e.target.value)} placeholder="—" className="input-dark text-center" />
+            </div>
+          </div>
+          <div>
+            <label className="field-label mb-2">Muscle Groups</label>
+            <div className="flex flex-wrap gap-1.5">
+              {COMMON_MUSCLE_GROUPS.map(mg => (
+                <button
+                  key={mg}
+                  onClick={() => setMuscles(prev => prev.includes(mg) ? prev.filter(m => m !== mg) : [...prev, mg])}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    muscles.includes(mg)
+                      ? 'bg-accent/20 text-accent border border-accent/30'
+                      : 'bg-white/5 text-white/40 border border-transparent hover:bg-white/10'
+                  }`}
+                >
+                  {mg}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button onClick={handleAdd} disabled={!name.trim()} className={`btn-primary w-full mt-2 ${!name.trim() ? 'opacity-40 cursor-not-allowed' : ''}`}>
+            + Add to Workout
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditExerciseModal({ exercise, onSave, onClose }: { exercise: Exercise; onSave: (patch: Partial<Exercise>) => void; onClose: () => void }) {
+  const [name, setName] = useState(exercise.name);
+  const [sets, setSets] = useState(exercise.sets);
+  const [reps, setReps] = useState(exercise.reps);
+  const [weight, setWeight] = useState(exercise.targetWeightLb?.toString() ?? '');
+  const [muscles, setMuscles] = useState<string[]>(exercise.muscleGroups);
+
+  function handleSave() {
+    if (!name.trim()) return;
+    onSave({
+      name: name.trim(),
+      sets,
+      reps,
+      targetWeightLb: weight ? Number(weight) : undefined,
+      muscleGroups: muscles.length > 0 ? muscles : ['Other'],
+    });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6 animate-fade-in" onClick={onClose}>
+      <div className="w-full sm:max-w-md bg-surface-card border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 max-h-[85dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-heading text-white">Edit Exercise</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-white/40 hover:text-white/70 text-xl">×</button>
+        </div>
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="field-label">Exercise Name</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} autoFocus className="input-dark" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="field-label">Sets</label>
+              <input type="number" value={sets} onChange={e => setSets(Math.max(1, Number(e.target.value)))} min={1} className="input-dark text-center" />
+            </div>
+            <div>
+              <label className="field-label">Reps</label>
+              <input type="text" value={reps} onChange={e => setReps(e.target.value)} className="input-dark text-center" />
+            </div>
+            <div>
+              <label className="field-label">Weight (lb)</label>
+              <input type="number" value={weight} onChange={e => setWeight(e.target.value)} placeholder="—" className="input-dark text-center" />
+            </div>
+          </div>
+          <div>
+            <label className="field-label mb-2">Muscle Groups</label>
+            <div className="flex flex-wrap gap-1.5">
+              {COMMON_MUSCLE_GROUPS.map(mg => (
+                <button
+                  key={mg}
+                  onClick={() => setMuscles(prev => prev.includes(mg) ? prev.filter(m => m !== mg) : [...prev, mg])}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    muscles.includes(mg)
+                      ? 'bg-accent/20 text-accent border border-accent/30'
+                      : 'bg-white/5 text-white/40 border border-transparent hover:bg-white/10'
+                  }`}
+                >
+                  {mg}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button onClick={handleSave} disabled={!name.trim()} className={`btn-primary w-full mt-2 ${!name.trim() ? 'opacity-40 cursor-not-allowed' : ''}`}>
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // TODAY VIEW
 // ============================================================================
 
-function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onRegenerateWeights,onMarkComplete,restTimerPrefs}:{
+function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onRegenerateWeights,onMarkComplete,restTimerPrefs,onAddExercise,onEditExercise,onDeleteExercise,onReorderExercise}:{
   today:Session|null;nextDayType:DayType;history:Session[];setup:Setup|null;
   onGenerate:()=>void;onUpdateLog:(exId:string,patch:Partial<ExerciseLog>)=>void;
   onRegenerateWeights:(en:number,di:number,sl?:number)=>void;onMarkComplete:(c:boolean)=>void;
   restTimerPrefs:RestTimerPreferences;
+  onAddExercise:(ex:Exercise)=>void;onEditExercise:(exId:string,patch:Partial<Exercise>)=>void;
+  onDeleteExercise:(exId:string)=>void;onReorderExercise:(from:number,to:number)=>void;
 }) {
   const [currentExIndex, setCurrentExIndex] = useState(0);
   const [showOverview, setShowOverview] = useState(true);
@@ -856,6 +1039,10 @@ function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onReg
   const [restTimerDuration, setRestTimerDuration] = useState(90);
   const [pendingNextIndex, setPendingNextIndex] = useState<number | null>(null);
   const [pendingFinish, setPendingFinish] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingExId, setEditingExId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   // Trigger rest timer before navigating to next exercise
   const handleNext = useCallback(() => {
@@ -960,11 +1147,67 @@ function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onReg
           <MetricSlider label="Sleep (hrs)" value={today.sleepHours??0} max={12} onChange={v=>onRegenerateWeights(today.energy,today.difficulty,v||undefined)} />
         </div>
       </details>
-      <div className="flex flex-col gap-3 stagger-children mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-caption text-white/40">{today.workout.length} exercises</span>
+        <button
+          onClick={() => { setIsEditMode(!isEditMode); setDeleteConfirmId(null); }}
+          className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+            isEditMode ? 'bg-accent/20 text-accent border border-accent/30' : 'bg-white/5 text-white/40 border border-transparent hover:bg-white/10'
+          }`}
+        >
+          {isEditMode ? '✓ Done' : '✎ Edit'}
+        </button>
+      </div>
+      <div className="flex flex-col gap-3 stagger-children mb-4">
         {today.workout.map((ex,idx)=>{
           const log=today.logs.find(l=>l.exerciseId===ex.id);
           const isLogged=log?.actualWeightLb!==undefined||log?.actualReps!==undefined;
           const isPrimary=ex.primary!=='accessory';
+          const isConfirmingDelete = deleteConfirmId === ex.id;
+
+          if (isEditMode) {
+            return (
+              <div key={ex.id} className={`p-4 rounded-card border transition-all ${isPrimary?'bg-accent/[0.04] border-accent/[0.12]':'bg-surface-card border-white/[0.08]'}`}>
+                <div className="flex items-center gap-2">
+                  {/* Reorder buttons */}
+                  <div className="flex flex-col gap-0.5 shrink-0">
+                    <button
+                      onClick={() => { if (idx > 0) onReorderExercise(idx, idx - 1); }}
+                      disabled={idx === 0}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 text-white/30 hover:text-white/60 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs"
+                    >▲</button>
+                    <button
+                      onClick={() => { if (idx < today.workout.length - 1) onReorderExercise(idx, idx + 1); }}
+                      disabled={idx === today.workout.length - 1}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 text-white/30 hover:text-white/60 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs"
+                    >▼</button>
+                  </div>
+                  {/* Exercise info */}
+                  <div className="flex-1 min-w-0">
+                    <div className={`font-semibold truncate ${isPrimary ? 'text-accent' : 'text-white'}`}>{ex.name}</div>
+                    <div className="text-caption text-white/30">{ex.sets}×{ex.reps}{ex.targetWeightLb && <span className="ml-2 text-white/50">@ {ex.targetWeightLb} lb</span>}</div>
+                  </div>
+                  {/* Edit & Delete */}
+                  <button
+                    onClick={() => setEditingExId(ex.id)}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 text-white/40 hover:text-accent hover:bg-accent/10 transition-colors text-sm"
+                  >✎</button>
+                  {isConfirmingDelete ? (
+                    <div className="flex gap-1.5">
+                      <button onClick={() => { onDeleteExercise(ex.id); setDeleteConfirmId(null); if (currentExIndex >= today.workout.length - 1 && currentExIndex > 0) setCurrentExIndex(currentExIndex - 1); }} className="px-2 py-1 text-[10px] font-bold bg-danger/20 border border-danger/30 rounded-lg text-danger">Delete</button>
+                      <button onClick={() => setDeleteConfirmId(null)} className="px-2 py-1 text-[10px] font-bold bg-white/5 border border-white/10 rounded-lg text-white/60">Cancel</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirmId(ex.id)}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 text-white/30 hover:text-danger hover:bg-danger/10 transition-colors text-sm"
+                    >×</button>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
           return (
             <button key={ex.id} onClick={()=>{setCurrentExIndex(idx);setShowOverview(false);}} className={`w-full text-left p-4 rounded-card border transition-all active:scale-[0.98] ${isPrimary?'bg-accent/[0.04] border-accent/[0.12]':'bg-surface-card border-white/[0.08]'} hover:bg-white/[0.06]`}>
               <div className="flex items-center gap-3">
@@ -979,10 +1222,24 @@ function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onReg
           );
         })}
       </div>
+      {/* Add Exercise button */}
+      <button
+        onClick={() => setShowAddModal(true)}
+        className="w-full mb-6 p-3 rounded-card border border-dashed border-white/10 text-caption text-white/30 hover:text-white/50 hover:border-white/20 hover:bg-white/[0.02] transition-all flex items-center justify-center gap-2"
+      >
+        <span className="text-lg">+</span> Add Exercise
+      </button>
       <div className="flex gap-3">
         {!isCompleted?(<button onClick={()=>onMarkComplete(true)} className="btn-success flex-1 flex items-center justify-center gap-2"><span>✓</span> Complete Workout</button>):(<button onClick={()=>onMarkComplete(false)} className="btn-secondary flex-1">↩ Mark Incomplete</button>)}
         <button onClick={onGenerate} className="btn-secondary px-4">+ New</button>
       </div>
+      {/* Modals */}
+      {showAddModal && <AddExerciseModal onAdd={onAddExercise} onClose={() => setShowAddModal(false)} />}
+      {editingExId && (() => {
+        const editEx = today.workout.find(ex => ex.id === editingExId);
+        if (!editEx) return null;
+        return <EditExerciseModal exercise={editEx} onSave={(patch) => onEditExercise(editingExId, patch)} onClose={() => setEditingExId(null)} />;
+      })()}
     </div>
   );
 
@@ -996,7 +1253,10 @@ function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onReg
     <div className="animate-fade-in">
       <div className="flex items-center justify-between mb-6">
         <button onClick={()=>setShowOverview(true)} className="flex items-center gap-2 text-caption text-white/40 hover:text-white/70 transition-colors py-2">‹ All Exercises</button>
-        <div className="text-caption text-white/30">{currentExIndex+1} / {today.workout.length}</div>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setEditingExId(currentEx.id)} className="text-caption text-white/30 hover:text-accent transition-colors">✎ Edit</button>
+          <div className="text-caption text-white/30">{currentExIndex+1} / {today.workout.length}</div>
+        </div>
       </div>
       <div className={`rounded-2xl border p-6 mb-6 ${isPrimary?'bg-accent/[0.04] border-accent/[0.12]':'card'}`}>
         <div className="mb-2">
@@ -1039,6 +1299,12 @@ function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onReg
           ⏱️ Start rest timer ({Math.floor(getRestDuration(currentEx, restTimerPrefs) / 60)}:{String(getRestDuration(currentEx, restTimerPrefs) % 60).padStart(2, '0')})
         </button>
       )}
+      {/* Edit modal in single exercise view */}
+      {editingExId && (() => {
+        const editEx = today.workout.find(ex => ex.id === editingExId);
+        if (!editEx) return null;
+        return <EditExerciseModal exercise={editEx} onSave={(patch) => onEditExercise(editingExId, patch)} onClose={() => setEditingExId(null)} />;
+      })()}
     </div>
   );
 }
