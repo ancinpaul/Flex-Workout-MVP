@@ -422,11 +422,6 @@ export default function Page() {
   const history = activeProfile?.history ?? [];
   const nextDayType = useMemo(()=>pickNextDayType(history), [history]);
   const today = history[0] && isSameDay(history[0].dateISO, new Date().toISOString()) ? history[0] : null;
-  const restTimerPrefs = useMemo(() => activeProfile?.restTimerPrefs ?? DEFAULT_REST_PREFS, [activeProfile]);
-  const updateRestTimerPrefs = useCallback((prefs: RestTimerPreferences) => {
-    updateActiveProfile({ restTimerPrefs: prefs });
-  }, [updateActiveProfile]);
-
   const createProfile = useCallback((name:string)=>{
     const p=createDefaultProfile(name);
     setAppState(prev=>({profiles:[...prev.profiles,p],activeProfileId:p.id}));
@@ -443,7 +438,16 @@ export default function Page() {
     if(!appState.activeProfileId) return;
     setAppState(prev=>({...prev,profiles:prev.profiles.map(p=>p.id===prev.activeProfileId?{...p,...updates,lastActiveAt:new Date().toISOString()}:p)}));
   },[appState.activeProfileId]);
+const updateActiveProfile = useCallback((updates:Partial<UserProfile>)=>{
+  if(!appState.activeProfileId) return;
+  setAppState(prev=>({...prev,profiles:prev.profiles.map(p=>p.id===prev.activeProfileId?{...p,...updates,lastActiveAt:new Date().toISOString()}:p)}));
+},[appState.activeProfileId]);
 
+// ADD THESE TWO LINES HERE:
+const restTimerPrefs = useMemo(() => activeProfile?.restTimerPrefs ?? DEFAULT_REST_PREFS, [activeProfile]);
+const updateRestTimerPrefs = useCallback((prefs: RestTimerPreferences) => {
+  updateActiveProfile({ restTimerPrefs: prefs });
+}, [updateActiveProfile]);
   const [draftSetup, setDraftSetup] = useState<Setup>({name:'',gender:'Male',heightIn:70,weightLb:180,goal:'Hypertrophy',fiveRM:{bench:135,squat:185,deadlift:225,ohp:95,row:135}});
   useEffect(()=>{ if(setup) setDraftSetup(setup); else if(activeProfile) setDraftSetup(prev=>({...prev,name:activeProfile.displayName})); },[setup, activeProfile]);
 
