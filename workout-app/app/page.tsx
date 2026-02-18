@@ -438,10 +438,6 @@ export default function Page() {
     if(!appState.activeProfileId) return;
     setAppState(prev=>({...prev,profiles:prev.profiles.map(p=>p.id===prev.activeProfileId?{...p,...updates,lastActiveAt:new Date().toISOString()}:p)}));
   },[appState.activeProfileId]);
-const updateActiveProfile = useCallback((updates:Partial<UserProfile>)=>{
-  if(!appState.activeProfileId) return;
-  setAppState(prev=>({...prev,profiles:prev.profiles.map(p=>p.id===prev.activeProfileId?{...p,...updates,lastActiveAt:new Date().toISOString()}:p)}));
-},[appState.activeProfileId]);
 
 // ADD THESE TWO LINES HERE:
 const restTimerPrefs = useMemo(() => activeProfile?.restTimerPrefs ?? DEFAULT_REST_PREFS, [activeProfile]);
