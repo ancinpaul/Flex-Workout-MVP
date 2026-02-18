@@ -1,5 +1,9 @@
 'use client';
 
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// Wake Lock API type (not in all TS libs)
+interface WakeLockSentinel { released: boolean; release: () => Promise<void>; }
+
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 
 // ============================================================================
@@ -50,6 +54,16 @@ type Session = {
   completed?: boolean;
 };
 
+type RestTimerPreferences = {
+  enabled: boolean;
+  compoundSeconds: number;
+  accessorySeconds: number;
+  isolationSeconds: number;
+  autoStart: boolean;
+  vibrate: boolean;
+  sound: boolean;
+};
+
 type UserProfile = {
   id: string;
   displayName: string;
@@ -59,6 +73,7 @@ type UserProfile = {
   setup: Setup | null;
   history: Session[];
   preferences: { theme: 'dark' | 'light'; units: 'imperial' | 'metric' };
+  restTimerPrefs?: RestTimerPreferences;
 };
 
 type AppState = { profiles: UserProfile[]; activeProfileId: string | null };
@@ -75,6 +90,25 @@ const LIFT_NAMES: Record<LiftKey, string> = { bench:'Bench', squat:'Squat', dead
 const ENERGY_EMOJIS = ['😴','😔','😐','😊','💪','🔥'];
 const SLEEP_OPTIONS = ['< 5h','5-6h','6-7h','7-8h','8h+'];
 const SLEEP_VALUES = [4.5, 5.5, 6.5, 7.5, 8.5];
+
+const DEFAULT_REST_PREFS: RestTimerPreferences = {
+  enabled: true,
+  compoundSeconds: 150,   // 2:30
+  accessorySeconds: 90,   // 1:30
+  isolationSeconds: 60,   // 1:00
+  autoStart: true,
+  vibrate: true,
+  sound: true,
+};
+
+const REST_PRESETS = [
+  { label: '0:30', seconds: 30 },
+  { label: '1:00', seconds: 60 },
+  { label: '1:30', seconds: 90 },
+  { label: '2:00', seconds: 120 },
+  { label: '2:30', seconds: 150 },
+  { label: '3:00', seconds: 180 },
+];
 
 // ============================================================================
 // UTILITIES
@@ -93,6 +127,13 @@ function getWeekNumber(date: Date): string {
   return `W${Math.ceil((d + s.getDay() + 1) / 7)} ${date.getFullYear()}`;
 }
 function getDaysBetween(a: Date, b: Date) { return Math.round(Math.abs((a.getTime() - b.getTime()) / 86400000)); }
+
+function getRestDuration(exercise: Exercise, prefs: RestTimerPreferences): number {
+  if (exercise.primary !== 'accessory') return prefs.compoundSeconds;
+  const name = exercise.name.toLowerCase();
+  const isIsolation = name.includes('curl') || name.includes('lateral') || name.includes('face pull') || name.includes('calf') || name.includes('pushdown') || name.includes('extension');
+  return isIsolation ? prefs.isolationSeconds : prefs.accessorySeconds;
+}
 function getRelativeTime(iso: string): string {
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   if (d === 0) return 'Today'; if (d === 1) return 'Yesterday';
@@ -381,6 +422,10 @@ export default function Page() {
   const history = activeProfile?.history ?? [];
   const nextDayType = useMemo(()=>pickNextDayType(history), [history]);
   const today = history[0] && isSameDay(history[0].dateISO, new Date().toISOString()) ? history[0] : null;
+  const restTimerPrefs = useMemo(() => activeProfile?.restTimerPrefs ?? DEFAULT_REST_PREFS, [activeProfile]);
+  const updateRestTimerPrefs = useCallback((prefs: RestTimerPreferences) => {
+    updateActiveProfile({ restTimerPrefs: prefs });
+  }, [updateActiveProfile]);
 
   const createProfile = useCallback((name:string)=>{
     const p=createDefaultProfile(name);
@@ -478,9 +523,9 @@ export default function Page() {
         </div>
       </header>
       <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
-        {activeTab==='today' && <TodayView today={today} nextDayType={nextDayType} history={history} setup={setup} onGenerate={()=>setShowCheckin(true)} onUpdateLog={updateExerciseLog} onRegenerateWeights={regenerateWorkoutWeights} onMarkComplete={(c)=>updateToday({completed:c})} />}
+        {activeTab==='today' && <TodayView today={today} nextDayType={nextDayType} history={history} setup={setup} onGenerate={()=>setShowCheckin(true)} onUpdateLog={updateExerciseLog} onRegenerateWeights={regenerateWorkoutWeights} onMarkComplete={(c)=>updateToday({completed:c})} restTimerPrefs={restTimerPrefs} />}
         {activeTab==='progress' && <ProgressView history={history} />}
-        {activeTab==='profile' && <ProfileView profile={activeProfile} draftSetup={draftSetup} setDraftSetup={setDraftSetup} onSaveSetup={()=>updateActiveProfile({setup:draftSetup,displayName:draftSetup.name||activeProfile?.displayName||'User'})} onLoadDemo={applyDemoData} onExport={exportProfileData} onImport={handleImportData} onReset={resetAll} />}
+        {activeTab==='profile' && <ProfileView profile={activeProfile} draftSetup={draftSetup} setDraftSetup={setDraftSetup} onSaveSetup={()=>updateActiveProfile({setup:draftSetup,displayName:draftSetup.name||activeProfile?.displayName||'User'})} onLoadDemo={applyDemoData} onExport={exportProfileData} onImport={handleImportData} onReset={resetAll} restTimerPrefs={restTimerPrefs} onUpdateRestPrefs={updateRestTimerPrefs} />}
       </main>
       <nav className="bottom-nav">
         {([{key:'today' as const,icon:'🏋️',label:'Train'},{key:'progress' as const,icon:'📊',label:'Progress'},{key:'profile' as const,icon:'👤',label:'Profile'}]).map(item=>(
@@ -586,16 +631,275 @@ function CheckinOverlay({onStart,onSkip}:{onStart:(energy:number,sleep?:number)=
 }
 
 // ============================================================================
+// REST TIMER
+// ============================================================================
+
+function RestTimer({ duration, exerciseName, onComplete, onSkip }: {
+  duration: number;
+  exerciseName: string;
+  onComplete: () => void;
+  onSkip: () => void;
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(duration);
+  const [isPaused, setIsPaused] = useState(false);
+  const [totalDuration, setTotalDuration] = useState(duration);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const hasVibratedRef = useRef(false);
+
+  // Wake Lock — keep screen on
+  useEffect(() => {
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+        }
+      } catch { /* silently fail */ }
+    }
+    requestWakeLock();
+    return () => { wakeLockRef.current?.release(); };
+  }, []);
+
+  // Countdown
+  useEffect(() => {
+    if (isPaused || secondsLeft <= 0) return;
+    const id = setTimeout(() => setSecondsLeft(s => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [secondsLeft, isPaused]);
+
+  // Timer complete
+  useEffect(() => {
+    if (secondsLeft <= 0 && !hasVibratedRef.current) {
+      hasVibratedRef.current = true;
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      // Auto-advance after a brief moment
+      const t = setTimeout(onComplete, 800);
+      return () => clearTimeout(t);
+    }
+  }, [secondsLeft, onComplete]);
+
+  const progress = totalDuration > 0 ? (totalDuration - secondsLeft) / totalDuration : 1;
+  const minutes = Math.floor(Math.max(0, secondsLeft) / 60);
+  const secs = Math.max(0, secondsLeft) % 60;
+  const isFinished = secondsLeft <= 0;
+
+  // Circular progress
+  const radius = 80;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference * (1 - progress);
+
+  function addTime(s: number) {
+    setSecondsLeft(prev => prev + s);
+    setTotalDuration(prev => prev + s);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-surface-base/98 backdrop-blur-2xl flex items-center justify-center p-6 animate-fade-in">
+      <div className="w-full max-w-sm text-center">
+        {/* Exercise context */}
+        <div className="text-caption text-white/40 mb-2">Rest before next set</div>
+        <div className="text-subheading text-white/70 mb-8 truncate px-4">{exerciseName}</div>
+
+        {/* Circular timer */}
+        <div className="relative w-52 h-52 mx-auto mb-8">
+          <svg className="w-full h-full -rotate-90" viewBox="0 0 200 200">
+            {/* Track */}
+            <circle cx="100" cy="100" r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="8" />
+            {/* Progress */}
+            <circle
+              cx="100" cy="100" r={radius} fill="none"
+              stroke={isFinished ? '#4ade80' : '#64c8ff'}
+              strokeWidth="8" strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              className="transition-all duration-1000 ease-linear"
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            {isFinished ? (
+              <div className="text-4xl animate-pulse">✓</div>
+            ) : (
+              <>
+                <div className="text-hero text-white leading-none tabular-nums">
+                  {minutes}:{String(secs).padStart(2, '0')}
+                </div>
+                <button
+                  onClick={() => setIsPaused(!isPaused)}
+                  className="text-caption text-white/40 hover:text-white/70 transition-colors mt-2"
+                >
+                  {isPaused ? '▶ Resume' : '❚❚ Pause'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Quick adjust buttons */}
+        {!isFinished && (
+          <div className="flex justify-center gap-3 mb-8">
+            <button
+              onClick={() => addTime(-15)}
+              disabled={secondsLeft <= 15}
+              className="px-4 py-2.5 rounded-xl text-caption font-semibold bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              −15s
+            </button>
+            <button
+              onClick={() => addTime(15)}
+              className="px-4 py-2.5 rounded-xl text-caption font-semibold bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 transition-all"
+            >
+              +15s
+            </button>
+            <button
+              onClick={() => addTime(30)}
+              className="px-4 py-2.5 rounded-xl text-caption font-semibold bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 transition-all"
+            >
+              +30s
+            </button>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-col gap-3">
+          {isFinished ? (
+            <button onClick={onComplete} className="btn-success w-full text-base">
+              Continue →
+            </button>
+          ) : (
+            <button onClick={onSkip} className="text-caption text-white/30 hover:text-white/50 transition-colors py-3">
+              Skip rest
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RestTimerSettings({ prefs, onChange }: {
+  prefs: RestTimerPreferences;
+  onChange: (p: RestTimerPreferences) => void;
+}) {
+  return (
+    <div className="card p-5 mb-6">
+      <h3 className="text-subheading text-white mb-4 flex items-center gap-2">⏱️ Rest Timer</h3>
+      <div className="flex items-center justify-between mb-5">
+        <span className="text-body text-white/70">Enable rest timer</span>
+        <button
+          onClick={() => onChange({ ...prefs, enabled: !prefs.enabled })}
+          className={`w-12 h-7 rounded-full transition-all duration-200 relative ${prefs.enabled ? 'bg-accent' : 'bg-white/10'}`}
+        >
+          <div className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all duration-200 ${prefs.enabled ? 'left-[22px]' : 'left-0.5'}`} />
+        </button>
+      </div>
+      {prefs.enabled && (
+        <div className="flex flex-col gap-4 animate-fade-in">
+          {([
+            { key: 'compoundSeconds' as const, label: 'Compound lifts', desc: 'Bench, Squat, Deadlift, OHP, Row' },
+            { key: 'accessorySeconds' as const, label: 'Accessories', desc: 'Pull-ups, Dips, Cable rows, etc.' },
+            { key: 'isolationSeconds' as const, label: 'Isolation', desc: 'Curls, Lateral raises, Pushdowns' },
+          ]).map(({ key, label, desc }) => (
+            <div key={key}>
+              <div className="flex justify-between items-baseline mb-2">
+                <div>
+                  <div className="text-caption font-semibold text-white">{label}</div>
+                  <div className="text-[10px] text-white/30">{desc}</div>
+                </div>
+                <span className="text-caption font-bold text-accent tabular-nums">
+                  {Math.floor(prefs[key] / 60)}:{String(prefs[key] % 60).padStart(2, '0')}
+                </span>
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {REST_PRESETS.map(p => (
+                  <button
+                    key={p.seconds}
+                    onClick={() => onChange({ ...prefs, [key]: p.seconds })}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                      prefs[key] === p.seconds
+                        ? 'bg-accent/20 text-accent border border-accent/30'
+                        : 'bg-white/5 text-white/40 border border-transparent hover:bg-white/10'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+            <span className="text-caption text-white/50">Auto-start after logging</span>
+            <button
+              onClick={() => onChange({ ...prefs, autoStart: !prefs.autoStart })}
+              className={`w-10 h-6 rounded-full transition-all duration-200 relative ${prefs.autoStart ? 'bg-accent' : 'bg-white/10'}`}
+            >
+              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${prefs.autoStart ? 'left-[18px]' : 'left-0.5'}`} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // TODAY VIEW
 // ============================================================================
 
-function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onRegenerateWeights,onMarkComplete}:{
+function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onRegenerateWeights,onMarkComplete,restTimerPrefs}:{
   today:Session|null;nextDayType:DayType;history:Session[];setup:Setup|null;
   onGenerate:()=>void;onUpdateLog:(exId:string,patch:Partial<ExerciseLog>)=>void;
   onRegenerateWeights:(en:number,di:number,sl?:number)=>void;onMarkComplete:(c:boolean)=>void;
+  restTimerPrefs:RestTimerPreferences;
 }) {
   const [currentExIndex, setCurrentExIndex] = useState(0);
   const [showOverview, setShowOverview] = useState(true);
+  const [showRestTimer, setShowRestTimer] = useState(false);
+  const [restTimerDuration, setRestTimerDuration] = useState(90);
+  const [pendingNextIndex, setPendingNextIndex] = useState<number | null>(null);
+  const [pendingFinish, setPendingFinish] = useState(false);
+
+  // Trigger rest timer before navigating to next exercise
+  const handleNext = useCallback(() => {
+    if (!today) return;
+    const currentEx = today.workout[currentExIndex];
+    if (restTimerPrefs.enabled && currentEx) {
+      const dur = getRestDuration(currentEx, restTimerPrefs);
+      setRestTimerDuration(dur);
+      setPendingNextIndex(currentExIndex + 1);
+      setShowRestTimer(true);
+    } else {
+      setCurrentExIndex(currentExIndex + 1);
+    }
+  }, [today, currentExIndex, restTimerPrefs]);
+
+  const handleFinish = useCallback(() => {
+    if (!today) return;
+    onMarkComplete(true);
+    setShowOverview(true);
+  }, [today, onMarkComplete]);
+
+  const handleRestComplete = useCallback(() => {
+    setShowRestTimer(false);
+    if (pendingFinish) {
+      setPendingFinish(false);
+      onMarkComplete(true);
+      setShowOverview(true);
+    } else if (pendingNextIndex !== null) {
+      setCurrentExIndex(pendingNextIndex);
+      setPendingNextIndex(null);
+    }
+  }, [pendingNextIndex, pendingFinish, onMarkComplete]);
+
+  const handleRestSkip = useCallback(() => {
+    setShowRestTimer(false);
+    if (pendingFinish) {
+      setPendingFinish(false);
+      onMarkComplete(true);
+      setShowOverview(true);
+    } else if (pendingNextIndex !== null) {
+      setCurrentExIndex(pendingNextIndex);
+      setPendingNextIndex(null);
+    }
+  }, [pendingNextIndex, pendingFinish, onMarkComplete]);
 
   if (!today) return (
     <div className="text-center py-20 animate-fade-in">
@@ -612,6 +916,19 @@ function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onReg
   const currentEx = today.workout[currentExIndex];
   const currentLog = today.logs.find(l=>l.exerciseId===currentEx?.id);
   const isCompleted = today.completed||false;
+
+  // REST TIMER OVERLAY
+  if (showRestTimer) {
+    const timerEx = today.workout[currentExIndex];
+    return (
+      <RestTimer
+        duration={restTimerDuration}
+        exerciseName={timerEx?.name || 'Next set'}
+        onComplete={handleRestComplete}
+        onSkip={handleRestSkip}
+      />
+    );
+  }
 
   // OVERVIEW MODE
   if (showOverview) return (
@@ -705,8 +1022,23 @@ function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onReg
       </div>
       <div className="flex gap-3">
         <button onClick={()=>setCurrentExIndex(Math.max(0,currentExIndex-1))} disabled={currentExIndex===0} className={`btn-secondary flex-1 ${currentExIndex===0?'opacity-30 cursor-not-allowed':''}`}>‹ Previous</button>
-        {currentExIndex<today.workout.length-1?(<button onClick={()=>setCurrentExIndex(currentExIndex+1)} className="btn-accent flex-1">Next ›</button>):(<button onClick={()=>{onMarkComplete(true);setShowOverview(true);}} className="btn-success flex-1">✓ Finish</button>)}
+        {currentExIndex<today.workout.length-1?(<button onClick={handleNext} className="btn-accent flex-1">Next ›</button>):(<button onClick={handleFinish} className="btn-success flex-1">✓ Finish</button>)}
       </div>
+      {/* Manual rest timer trigger */}
+      {restTimerPrefs.enabled && (
+        <button
+          onClick={() => {
+            const dur = getRestDuration(currentEx, restTimerPrefs);
+            setRestTimerDuration(dur);
+            setPendingNextIndex(null);
+            setPendingFinish(false);
+            setShowRestTimer(true);
+          }}
+          className="w-full mt-3 py-2.5 text-caption text-white/30 hover:text-white/50 transition-colors flex items-center justify-center gap-2"
+        >
+          ⏱️ Start rest timer ({Math.floor(getRestDuration(currentEx, restTimerPrefs) / 60)}:{String(getRestDuration(currentEx, restTimerPrefs) % 60).padStart(2, '0')})
+        </button>
+      )}
     </div>
   );
 }
@@ -894,10 +1226,11 @@ function SessionCard({session,isLatest}:{session:Session;isLatest:boolean}) {
 // PROFILE VIEW
 // ============================================================================
 
-function ProfileView({profile,draftSetup,setDraftSetup,onSaveSetup,onLoadDemo,onExport,onImport,onReset}:{
+function ProfileView({profile,draftSetup,setDraftSetup,onSaveSetup,onLoadDemo,onExport,onImport,onReset,restTimerPrefs,onUpdateRestPrefs}:{
   profile:UserProfile|null;draftSetup:Setup;setDraftSetup:(s:Setup)=>void;
   onSaveSetup:()=>void;onLoadDemo:()=>void;onExport:()=>void;
   onImport:(e:React.ChangeEvent<HTMLInputElement>)=>void;onReset:()=>void;
+  restTimerPrefs:RestTimerPreferences;onUpdateRestPrefs:(p:RestTimerPreferences)=>void;
 }) {
   const importRef = useRef<HTMLInputElement>(null);
   const [saved, setSaved] = useState(false);
@@ -931,6 +1264,7 @@ function ProfileView({profile,draftSetup,setDraftSetup,onSaveSetup,onLoadDemo,on
         </div>
         <button onClick={handleSave} className={`w-full ${saved?'btn-success':'btn-primary'} transition-all`}>{saved?'✓ Saved!':'Save Profile'}</button>
       </div>
+      <RestTimerSettings prefs={restTimerPrefs} onChange={onUpdateRestPrefs} />
       <div className="card p-5 mb-6">
         <h3 className="text-subheading text-white mb-4">Data</h3>
         <div className="flex flex-col gap-3">
