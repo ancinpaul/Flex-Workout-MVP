@@ -78,6 +78,24 @@ type UserProfile = {
 
 type AppState = { profiles: UserProfile[]; activeProfileId: string | null };
 
+type LibraryExercise = {
+  name: string;
+  primary: LiftKey | 'accessory';
+  muscleGroups: string[];
+  category: 'compound' | 'accessory' | 'isolation';
+  movement: 'push' | 'pull' | 'hinge' | 'squat' | 'isolation' | 'carry';
+  dayTypes: DayType[];
+  sets: number;
+  reps: string;
+  isAnchor?: boolean;
+  weightRatio?: {
+    relativeTo: LiftKey;
+    ratio: number;
+    minWeight: number;
+    isPerDumbbell?: boolean;
+  };
+};
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -153,38 +171,156 @@ function pickNextDayType(history: Session[]): DayType {
 }
 
 // ============================================================================
+// EXERCISE LIBRARY
+// ============================================================================
+
+const EXERCISE_LIBRARY: LibraryExercise[] = [
+  // ── CHEST & TRICEPS ───────────────────────────────────────────────────────
+  // Anchor
+  { name:'Barbell Bench Press', primary:'bench', muscleGroups:['Chest','Triceps','Shoulders'], category:'compound', movement:'push', dayTypes:['Chest & Triceps'], sets:4, reps:'6-10', isAnchor:true },
+  // Chest accessories
+  { name:'Incline Dumbbell Press', primary:'accessory', muscleGroups:['Chest','Shoulders'], category:'accessory', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'bench',ratio:0.35,minWeight:20,isPerDumbbell:true} },
+  { name:'Dumbbell Bench Press', primary:'accessory', muscleGroups:['Chest','Triceps'], category:'accessory', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'bench',ratio:0.38,minWeight:25,isPerDumbbell:true} },
+  { name:'Incline Barbell Press', primary:'accessory', muscleGroups:['Chest','Shoulders'], category:'compound', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'6-10', weightRatio:{relativeTo:'bench',ratio:0.75,minWeight:65} },
+  { name:'Machine Chest Press', primary:'accessory', muscleGroups:['Chest','Triceps'], category:'accessory', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'bench',ratio:0.70,minWeight:50} },
+  { name:'Cable Flyes', primary:'accessory', muscleGroups:['Chest'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'10-15', weightRatio:{relativeTo:'bench',ratio:0.15,minWeight:15} },
+  { name:'Dumbbell Flyes', primary:'accessory', muscleGroups:['Chest'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'10-15', weightRatio:{relativeTo:'bench',ratio:0.15,minWeight:15,isPerDumbbell:true} },
+  { name:'Pec Deck Machine', primary:'accessory', muscleGroups:['Chest'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'10-15', weightRatio:{relativeTo:'bench',ratio:0.40,minWeight:40} },
+  { name:'Dips (Chest)', primary:'accessory', muscleGroups:['Chest','Triceps'], category:'compound', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'6-12', weightRatio:{relativeTo:'bench',ratio:0,minWeight:0} },
+  { name:'Landmine Press', primary:'accessory', muscleGroups:['Chest','Shoulders'], category:'accessory', movement:'push', dayTypes:['Chest & Triceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'bench',ratio:0.30,minWeight:25} },
+  // Triceps accessories
+  { name:'Triceps Rope Pushdown', primary:'accessory', muscleGroups:['Triceps'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'bench',ratio:0.25,minWeight:20} },
+  { name:'Overhead Triceps Extension', primary:'accessory', muscleGroups:['Triceps'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'bench',ratio:0.20,minWeight:15} },
+  { name:'Skull Crushers', primary:'accessory', muscleGroups:['Triceps'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps','Arms'], sets:3, reps:'8-12', weightRatio:{relativeTo:'bench',ratio:0.30,minWeight:30} },
+  { name:'Close-Grip Bench Press', primary:'accessory', muscleGroups:['Triceps','Chest'], category:'compound', movement:'push', dayTypes:['Chest & Triceps','Arms'], sets:3, reps:'8-12', weightRatio:{relativeTo:'bench',ratio:0.70,minWeight:65} },
+  { name:'Triceps Dips (Upright)', primary:'accessory', muscleGroups:['Triceps'], category:'compound', movement:'push', dayTypes:['Chest & Triceps','Arms'], sets:3, reps:'8-12', weightRatio:{relativeTo:'bench',ratio:0,minWeight:0} },
+  { name:'Cable Overhead Extension', primary:'accessory', muscleGroups:['Triceps'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'bench',ratio:0.20,minWeight:15} },
+  { name:'Triceps Kickbacks', primary:'accessory', muscleGroups:['Triceps'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps','Arms'], sets:3, reps:'12-15', weightRatio:{relativeTo:'bench',ratio:0.08,minWeight:10,isPerDumbbell:true} },
+  { name:'Single-Arm Pushdown', primary:'accessory', muscleGroups:['Triceps'], category:'isolation', movement:'push', dayTypes:['Chest & Triceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'bench',ratio:0.12,minWeight:10} },
+
+  // ── BACK & BICEPS ─────────────────────────────────────────────────────────
+  // Anchor
+  { name:'Barbell Row', primary:'row', muscleGroups:['Back','Biceps'], category:'compound', movement:'pull', dayTypes:['Back & Biceps'], sets:4, reps:'6-10', isAnchor:true },
+  // Back accessories
+  { name:'Pull-Ups', primary:'accessory', muscleGroups:['Back','Biceps'], category:'compound', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'6-12', weightRatio:{relativeTo:'row',ratio:0,minWeight:0} },
+  { name:'Lat Pulldown', primary:'accessory', muscleGroups:['Back','Biceps'], category:'accessory', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.65,minWeight:60} },
+  { name:'Seated Cable Row', primary:'accessory', muscleGroups:['Back'], category:'accessory', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.55,minWeight:50} },
+  { name:'Dumbbell Row', primary:'accessory', muscleGroups:['Back','Biceps'], category:'accessory', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.40,minWeight:30,isPerDumbbell:true} },
+  { name:'T-Bar Row', primary:'accessory', muscleGroups:['Back'], category:'compound', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.65,minWeight:45} },
+  { name:'Chest-Supported Row', primary:'accessory', muscleGroups:['Back'], category:'accessory', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.30,minWeight:25,isPerDumbbell:true} },
+  { name:'Machine Row', primary:'accessory', muscleGroups:['Back'], category:'accessory', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.60,minWeight:50} },
+  { name:'Straight-Arm Pulldown', primary:'accessory', muscleGroups:['Back'], category:'isolation', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'10-15', weightRatio:{relativeTo:'row',ratio:0.25,minWeight:20} },
+  { name:'Face Pulls', primary:'accessory', muscleGroups:['Rear Delts','Upper Back'], category:'isolation', movement:'pull', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'12-15', weightRatio:{relativeTo:'row',ratio:0.25,minWeight:20} },
+  { name:'Meadows Row', primary:'accessory', muscleGroups:['Back'], category:'accessory', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.30,minWeight:25} },
+  { name:'Close-Grip Lat Pulldown', primary:'accessory', muscleGroups:['Back','Biceps'], category:'accessory', movement:'pull', dayTypes:['Back & Biceps'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.60,minWeight:50} },
+  // Biceps accessories
+  { name:'Dumbbell Curls', primary:'accessory', muscleGroups:['Biceps'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'row',ratio:0.15,minWeight:15,isPerDumbbell:true} },
+  { name:'Barbell Curls', primary:'accessory', muscleGroups:['Biceps'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.35,minWeight:30} },
+  { name:'Hammer Curls', primary:'accessory', muscleGroups:['Biceps','Forearms'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'row',ratio:0.15,minWeight:15,isPerDumbbell:true} },
+  { name:'Incline Dumbbell Curls', primary:'accessory', muscleGroups:['Biceps'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'row',ratio:0.12,minWeight:12,isPerDumbbell:true} },
+  { name:'Cable Curls', primary:'accessory', muscleGroups:['Biceps'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'row',ratio:0.25,minWeight:20} },
+  { name:'Preacher Curls', primary:'accessory', muscleGroups:['Biceps'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'row',ratio:0.25,minWeight:20} },
+  { name:'Concentration Curls', primary:'accessory', muscleGroups:['Biceps'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'row',ratio:0.12,minWeight:10,isPerDumbbell:true} },
+  { name:'EZ Bar Curls', primary:'accessory', muscleGroups:['Biceps'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'8-12', weightRatio:{relativeTo:'row',ratio:0.30,minWeight:25} },
+  { name:'Spider Curls', primary:'accessory', muscleGroups:['Biceps'], category:'isolation', movement:'isolation', dayTypes:['Back & Biceps','Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'row',ratio:0.12,minWeight:10,isPerDumbbell:true} },
+
+  // ── LEGS ───────────────────────────────────────────────────────────────────
+  // Anchors
+  { name:'Back Squat', primary:'squat', muscleGroups:['Quads','Glutes'], category:'compound', movement:'squat', dayTypes:['Legs'], sets:4, reps:'5-8', isAnchor:true },
+  { name:'Romanian Deadlift', primary:'accessory', muscleGroups:['Hamstrings','Glutes'], category:'compound', movement:'hinge', dayTypes:['Legs'], sets:3, reps:'6-10', isAnchor:true, weightRatio:{relativeTo:'deadlift',ratio:0.50,minWeight:95} },
+  // Quad accessories
+  { name:'Leg Press', primary:'accessory', muscleGroups:['Quads','Glutes'], category:'compound', movement:'squat', dayTypes:['Legs'], sets:3, reps:'10-15', weightRatio:{relativeTo:'squat',ratio:1.2,minWeight:90} },
+  { name:'Front Squat', primary:'accessory', muscleGroups:['Quads','Core'], category:'compound', movement:'squat', dayTypes:['Legs'], sets:3, reps:'6-10', weightRatio:{relativeTo:'squat',ratio:0.65,minWeight:65} },
+  { name:'Bulgarian Split Squat', primary:'accessory', muscleGroups:['Quads','Glutes'], category:'accessory', movement:'squat', dayTypes:['Legs'], sets:3, reps:'8-12', weightRatio:{relativeTo:'squat',ratio:0.18,minWeight:20,isPerDumbbell:true} },
+  { name:'Goblet Squat', primary:'accessory', muscleGroups:['Quads','Glutes'], category:'accessory', movement:'squat', dayTypes:['Legs'], sets:3, reps:'10-15', weightRatio:{relativeTo:'squat',ratio:0.25,minWeight:25} },
+  { name:'Leg Extension', primary:'accessory', muscleGroups:['Quads'], category:'isolation', movement:'isolation', dayTypes:['Legs'], sets:3, reps:'10-15', weightRatio:{relativeTo:'squat',ratio:0.30,minWeight:40} },
+  { name:'Hack Squat', primary:'accessory', muscleGroups:['Quads','Glutes'], category:'compound', movement:'squat', dayTypes:['Legs'], sets:3, reps:'8-12', weightRatio:{relativeTo:'squat',ratio:0.80,minWeight:90} },
+  { name:'Walking Lunges', primary:'accessory', muscleGroups:['Quads','Glutes'], category:'accessory', movement:'squat', dayTypes:['Legs'], sets:3, reps:'10-12 each', weightRatio:{relativeTo:'squat',ratio:0.18,minWeight:20,isPerDumbbell:true} },
+  { name:'Smith Machine Squat', primary:'accessory', muscleGroups:['Quads','Glutes'], category:'compound', movement:'squat', dayTypes:['Legs'], sets:3, reps:'8-12', weightRatio:{relativeTo:'squat',ratio:0.70,minWeight:65} },
+  // Hamstring accessories
+  { name:'Hamstring Curl', primary:'accessory', muscleGroups:['Hamstrings'], category:'isolation', movement:'isolation', dayTypes:['Legs'], sets:3, reps:'10-15', weightRatio:{relativeTo:'squat',ratio:0.25,minWeight:40} },
+  { name:'Stiff-Leg Deadlift', primary:'accessory', muscleGroups:['Hamstrings','Glutes'], category:'compound', movement:'hinge', dayTypes:['Legs'], sets:3, reps:'8-12', weightRatio:{relativeTo:'deadlift',ratio:0.45,minWeight:85} },
+  { name:'Good Mornings', primary:'accessory', muscleGroups:['Hamstrings','Lower Back'], category:'accessory', movement:'hinge', dayTypes:['Legs'], sets:3, reps:'8-12', weightRatio:{relativeTo:'deadlift',ratio:0.30,minWeight:45} },
+  { name:'Nordic Hamstring Curl', primary:'accessory', muscleGroups:['Hamstrings'], category:'isolation', movement:'isolation', dayTypes:['Legs'], sets:3, reps:'5-8', weightRatio:{relativeTo:'squat',ratio:0,minWeight:0} },
+  { name:'Seated Hamstring Curl', primary:'accessory', muscleGroups:['Hamstrings'], category:'isolation', movement:'isolation', dayTypes:['Legs'], sets:3, reps:'10-15', weightRatio:{relativeTo:'squat',ratio:0.25,minWeight:40} },
+  // Glute accessories
+  { name:'Hip Thrust', primary:'accessory', muscleGroups:['Glutes','Hamstrings'], category:'compound', movement:'hinge', dayTypes:['Legs'], sets:3, reps:'8-12', weightRatio:{relativeTo:'squat',ratio:0.90,minWeight:95} },
+  { name:'Cable Pull-Through', primary:'accessory', muscleGroups:['Glutes','Hamstrings'], category:'isolation', movement:'hinge', dayTypes:['Legs'], sets:3, reps:'10-15', weightRatio:{relativeTo:'squat',ratio:0.25,minWeight:30} },
+  { name:'Glute Kickback Machine', primary:'accessory', muscleGroups:['Glutes'], category:'isolation', movement:'isolation', dayTypes:['Legs'], sets:3, reps:'12-15', weightRatio:{relativeTo:'squat',ratio:0.20,minWeight:30} },
+  // Calf accessories
+  { name:'Standing Calf Raises', primary:'accessory', muscleGroups:['Calves'], category:'isolation', movement:'isolation', dayTypes:['Legs'], sets:3, reps:'12-20', weightRatio:{relativeTo:'squat',ratio:0.40,minWeight:50} },
+  { name:'Seated Calf Raises', primary:'accessory', muscleGroups:['Calves'], category:'isolation', movement:'isolation', dayTypes:['Legs'], sets:3, reps:'12-20', weightRatio:{relativeTo:'squat',ratio:0.25,minWeight:35} },
+  { name:'Leg Press Calf Raises', primary:'accessory', muscleGroups:['Calves'], category:'isolation', movement:'isolation', dayTypes:['Legs'], sets:3, reps:'15-20', weightRatio:{relativeTo:'squat',ratio:0.60,minWeight:60} },
+
+  // ── ARMS (Shoulders + Biceps + Triceps) ────────────────────────────────────
+  // Anchor
+  { name:'Overhead Press', primary:'ohp', muscleGroups:['Shoulders','Triceps'], category:'compound', movement:'push', dayTypes:['Arms'], sets:4, reps:'6-10', isAnchor:true },
+  // Shoulder accessories
+  { name:'Lateral Raises', primary:'accessory', muscleGroups:['Shoulders'], category:'isolation', movement:'isolation', dayTypes:['Arms'], sets:3, reps:'12-15', weightRatio:{relativeTo:'ohp',ratio:0.15,minWeight:10,isPerDumbbell:true} },
+  { name:'Cable Lateral Raises', primary:'accessory', muscleGroups:['Shoulders'], category:'isolation', movement:'isolation', dayTypes:['Arms'], sets:3, reps:'12-15', weightRatio:{relativeTo:'ohp',ratio:0.12,minWeight:10} },
+  { name:'Front Raises', primary:'accessory', muscleGroups:['Shoulders'], category:'isolation', movement:'push', dayTypes:['Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'ohp',ratio:0.12,minWeight:10,isPerDumbbell:true} },
+  { name:'Dumbbell Shoulder Press', primary:'accessory', muscleGroups:['Shoulders','Triceps'], category:'compound', movement:'push', dayTypes:['Arms'], sets:3, reps:'8-12', weightRatio:{relativeTo:'ohp',ratio:0.35,minWeight:20,isPerDumbbell:true} },
+  { name:'Arnold Press', primary:'accessory', muscleGroups:['Shoulders'], category:'compound', movement:'push', dayTypes:['Arms'], sets:3, reps:'8-12', weightRatio:{relativeTo:'ohp',ratio:0.30,minWeight:20,isPerDumbbell:true} },
+  { name:'Machine Shoulder Press', primary:'accessory', muscleGroups:['Shoulders','Triceps'], category:'compound', movement:'push', dayTypes:['Arms'], sets:3, reps:'8-12', weightRatio:{relativeTo:'ohp',ratio:0.70,minWeight:40} },
+  { name:'Reverse Pec Deck', primary:'accessory', muscleGroups:['Rear Delts','Upper Back'], category:'isolation', movement:'pull', dayTypes:['Arms'], sets:3, reps:'12-15', weightRatio:{relativeTo:'ohp',ratio:0.30,minWeight:20} },
+  { name:'Upright Rows', primary:'accessory', muscleGroups:['Shoulders','Traps'], category:'accessory', movement:'pull', dayTypes:['Arms'], sets:3, reps:'10-12', weightRatio:{relativeTo:'ohp',ratio:0.40,minWeight:30} },
+  { name:'Rear Delt Flyes', primary:'accessory', muscleGroups:['Rear Delts'], category:'isolation', movement:'pull', dayTypes:['Arms'], sets:3, reps:'12-15', weightRatio:{relativeTo:'ohp',ratio:0.10,minWeight:8,isPerDumbbell:true} },
+  { name:'Shrugs', primary:'accessory', muscleGroups:['Traps'], category:'isolation', movement:'pull', dayTypes:['Arms'], sets:3, reps:'10-15', weightRatio:{relativeTo:'ohp',ratio:0.35,minWeight:25,isPerDumbbell:true} },
+];
+
+// Helper to look up library entry by exercise name
+function findLibraryExercise(name: string): LibraryExercise | undefined {
+  return EXERCISE_LIBRARY.find(e => e.name === name);
+}
+
+// ============================================================================
 // WORKOUT TEMPLATES & WEIGHT COMPUTATION
 // ============================================================================
 
 function baseWorkoutTemplate(dayType: DayType): Exercise[] {
-  if (dayType === 'Chest & Triceps') return [
-    { id:uid('ex'), name:'Barbell Bench Press', primary:'bench', muscleGroups:['Chest','Triceps','Shoulders'], sets:4, reps:'6-10' },
-    { id:uid('ex'), name:'Incline Dumbbell Press', primary:'accessory', muscleGroups:['Chest'], sets:3, reps:'8-12' },
-    { id:uid('ex'), name:'Dips (Assisted if needed)', primary:'accessory', muscleGroups:['Chest','Triceps'], sets:3, reps:'6-12' },
-    { id:uid('ex'), name:'Triceps Rope Pushdown', primary:'accessory', muscleGroups:['Triceps'], sets:3, reps:'10-15' },
-    { id:uid('ex'), name:'Overhead Triceps Extension', primary:'accessory', muscleGroups:['Triceps'], sets:3, reps:'10-15' },
-  ];
-  if (dayType === 'Back & Biceps') return [
-    { id:uid('ex'), name:'Barbell Row', primary:'row', muscleGroups:['Back','Biceps'], sets:4, reps:'6-10' },
-    { id:uid('ex'), name:'Pull-Ups / Lat Pulldown', primary:'accessory', muscleGroups:['Back'], sets:3, reps:'6-12' },
-    { id:uid('ex'), name:'Seated Cable Row', primary:'accessory', muscleGroups:['Back'], sets:3, reps:'8-12' },
-    { id:uid('ex'), name:'Face Pulls', primary:'accessory', muscleGroups:['Rear Delts','Upper Back'], sets:3, reps:'12-15' },
-    { id:uid('ex'), name:'Dumbbell Curls', primary:'accessory', muscleGroups:['Biceps'], sets:3, reps:'10-15' },
-  ];
-  if (dayType === 'Legs') return [
-    { id:uid('ex'), name:'Back Squat', primary:'squat', muscleGroups:['Quads','Glutes'], sets:4, reps:'5-8' },
-    { id:uid('ex'), name:'Romanian Deadlift', primary:'accessory', muscleGroups:['Hamstrings','Glutes'], sets:3, reps:'6-10' },
-    { id:uid('ex'), name:'Leg Press', primary:'accessory', muscleGroups:['Quads'], sets:3, reps:'10-15' },
-    { id:uid('ex'), name:'Hamstring Curl', primary:'accessory', muscleGroups:['Hamstrings'], sets:3, reps:'10-15' },
-    { id:uid('ex'), name:'Calf Raises', primary:'accessory', muscleGroups:['Calves'], sets:3, reps:'12-20' },
-  ];
-  return [
-    { id:uid('ex'), name:'Overhead Press', primary:'ohp', muscleGroups:['Shoulders','Triceps'], sets:4, reps:'6-10' },
-    { id:uid('ex'), name:'Lateral Raises', primary:'accessory', muscleGroups:['Shoulders'], sets:3, reps:'12-15' },
-    { id:uid('ex'), name:'Incline Dumbbell Curls', primary:'accessory', muscleGroups:['Biceps'], sets:3, reps:'10-15' },
-    { id:uid('ex'), name:'Skull Crushers', primary:'accessory', muscleGroups:['Triceps'], sets:3, reps:'8-12' },
-    { id:uid('ex'), name:'Hammer Curls', primary:'accessory', muscleGroups:['Biceps','Forearms'], sets:3, reps:'10-15' },
-  ];
+  const anchors = EXERCISE_LIBRARY.filter(e => e.isAnchor && e.dayTypes.includes(dayType));
+  const pool = EXERCISE_LIBRARY.filter(e => !e.isAnchor && e.dayTypes.includes(dayType));
+
+  const workout: Exercise[] = anchors.map(a => ({
+    id: uid('ex'), name: a.name, primary: a.primary, muscleGroups: a.muscleGroups, sets: a.sets, reps: a.reps,
+  }));
+
+  const targetSlots = 5 - workout.length;
+  const picked: LibraryExercise[] = [];
+  const usedNames = new Set(workout.map(w => w.name));
+
+  const coverageGroups: Record<DayType, string[][]> = {
+    'Chest & Triceps': [['Chest'], ['Triceps']],
+    'Back & Biceps': [['Back'], ['Biceps']],
+    'Legs': [['Quads'], ['Hamstrings'], ['Calves']],
+    'Arms': [['Shoulders'], ['Biceps', 'Triceps']],
+  };
+
+  for (const group of coverageGroups[dayType]) {
+    if (picked.length >= targetSlots) break;
+    const candidates = pool.filter(e => !usedNames.has(e.name) && e.muscleGroups.some(mg => group.includes(mg)));
+    if (candidates.length > 0) {
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      picked.push(pick);
+      usedNames.add(pick.name);
+    }
+  }
+
+  const remaining = pool.filter(e => !usedNames.has(e.name));
+  while (picked.length < targetSlots && remaining.length > 0) {
+    const idx = Math.floor(Math.random() * remaining.length);
+    picked.push(remaining[idx]);
+    usedNames.add(remaining[idx].name);
+    remaining.splice(idx, 1);
+  }
+
+  for (const p of picked) {
+    workout.push({
+      id: uid('ex'), name: p.name, primary: p.primary, muscleGroups: p.muscleGroups, sets: p.sets, reps: p.reps,
+    });
+  }
+
+  return workout;
 }
 
 function findLastLiftPerformance(history: Session[], lift: LiftKey) {
@@ -225,24 +361,18 @@ function findLastAccessoryPerformance(history: Session[], name: string) {
   return null;
 }
 
-const ACCESSORY_DEFAULTS: Record<string, { relativeTo:LiftKey; ratio:number; minWeight:number; isPerDumbbell?:boolean }> = {
-  'Incline Dumbbell Press':{relativeTo:'bench',ratio:0.35,minWeight:20,isPerDumbbell:true},
-  'Dips (Assisted if needed)':{relativeTo:'bench',ratio:0,minWeight:0},
-  'Triceps Rope Pushdown':{relativeTo:'bench',ratio:0.25,minWeight:20},
-  'Overhead Triceps Extension':{relativeTo:'bench',ratio:0.20,minWeight:15},
-  'Pull-Ups / Lat Pulldown':{relativeTo:'row',ratio:0.65,minWeight:60},
-  'Seated Cable Row':{relativeTo:'row',ratio:0.55,minWeight:50},
-  'Face Pulls':{relativeTo:'row',ratio:0.25,minWeight:20},
-  'Dumbbell Curls':{relativeTo:'row',ratio:0.15,minWeight:15,isPerDumbbell:true},
-  'Romanian Deadlift':{relativeTo:'deadlift',ratio:0.50,minWeight:95},
-  'Leg Press':{relativeTo:'squat',ratio:1.2,minWeight:90},
-  'Hamstring Curl':{relativeTo:'squat',ratio:0.25,minWeight:40},
-  'Calf Raises':{relativeTo:'squat',ratio:0.40,minWeight:50},
-  'Lateral Raises':{relativeTo:'ohp',ratio:0.15,minWeight:10,isPerDumbbell:true},
-  'Incline Dumbbell Curls':{relativeTo:'row',ratio:0.12,minWeight:12,isPerDumbbell:true},
-  'Skull Crushers':{relativeTo:'bench',ratio:0.30,minWeight:30},
-  'Hammer Curls':{relativeTo:'row',ratio:0.15,minWeight:15,isPerDumbbell:true},
-};
+// ACCESSORY_DEFAULTS derived from the exercise library
+const ACCESSORY_DEFAULTS: Record<string, { relativeTo:LiftKey; ratio:number; minWeight:number; isPerDumbbell?:boolean }> = {};
+EXERCISE_LIBRARY.forEach(e => {
+  if (e.weightRatio) {
+    ACCESSORY_DEFAULTS[e.name] = {
+      relativeTo: e.weightRatio.relativeTo,
+      ratio: e.weightRatio.ratio,
+      minWeight: e.weightRatio.minWeight,
+      isPerDumbbell: e.weightRatio.isPerDumbbell,
+    };
+  }
+});
 
 function computeAccessoryWeightLb(args:{setup:Setup;history:Session[];exerciseName:string;currentEnergy?:number;currentSleep?:number}): number|undefined {
   const { setup, history, exerciseName, currentEnergy=3, currentSleep } = args;
@@ -393,11 +523,17 @@ function generateDemoData(profileName: string): {setup:Setup;history:Session[]} 
     const sl=Math.floor(Math.random()*4)+5;
     const di=en<=2?4:en>=4?3:Math.floor(Math.random()*2)+3;
     const gw=(l:LiftKey)=>roundTo2_5(sw[l]+tg[l]*(1-prog)+(Math.random()-0.5)*5+(en<=2?-5:en>=5?2.5:0));
-    let wo:Exercise[]=[],mg:string[]=[];
-    if(dt==='Chest & Triceps'){wo=[{id:uid('ex'),name:'Barbell Bench Press',primary:'bench',muscleGroups:['Chest','Triceps','Shoulders'],sets:4,reps:'6-10',targetWeightLb:gw('bench')},{id:uid('ex'),name:'Incline Dumbbell Press',primary:'accessory',muscleGroups:['Chest'],sets:3,reps:'8-12'},{id:uid('ex'),name:'Dips (Assisted if needed)',primary:'accessory',muscleGroups:['Chest','Triceps'],sets:3,reps:'6-12'},{id:uid('ex'),name:'Triceps Rope Pushdown',primary:'accessory',muscleGroups:['Triceps'],sets:3,reps:'10-15'},{id:uid('ex'),name:'Overhead Triceps Extension',primary:'accessory',muscleGroups:['Triceps'],sets:3,reps:'10-15'}];mg=['Chest','Triceps','Shoulders'];}
-    else if(dt==='Back & Biceps'){wo=[{id:uid('ex'),name:'Barbell Row',primary:'row',muscleGroups:['Back','Biceps'],sets:4,reps:'6-10',targetWeightLb:gw('row')},{id:uid('ex'),name:'Pull-Ups / Lat Pulldown',primary:'accessory',muscleGroups:['Back'],sets:3,reps:'6-12'},{id:uid('ex'),name:'Seated Cable Row',primary:'accessory',muscleGroups:['Back'],sets:3,reps:'8-12'},{id:uid('ex'),name:'Face Pulls',primary:'accessory',muscleGroups:['Rear Delts','Upper Back'],sets:3,reps:'12-15'},{id:uid('ex'),name:'Dumbbell Curls',primary:'accessory',muscleGroups:['Biceps'],sets:3,reps:'10-15'}];mg=['Back','Biceps'];}
-    else if(dt==='Legs'){wo=[{id:uid('ex'),name:'Back Squat',primary:'squat',muscleGroups:['Quads','Glutes'],sets:4,reps:'5-8',targetWeightLb:gw('squat')},{id:uid('ex'),name:'Romanian Deadlift',primary:'deadlift',muscleGroups:['Hamstrings','Glutes'],sets:3,reps:'6-10',targetWeightLb:gw('deadlift')},{id:uid('ex'),name:'Leg Press',primary:'accessory',muscleGroups:['Quads'],sets:3,reps:'10-15'},{id:uid('ex'),name:'Hamstring Curl',primary:'accessory',muscleGroups:['Hamstrings'],sets:3,reps:'10-15'},{id:uid('ex'),name:'Calf Raises',primary:'accessory',muscleGroups:['Calves'],sets:3,reps:'12-20'}];mg=['Quads','Glutes','Hamstrings'];}
-    else{wo=[{id:uid('ex'),name:'Overhead Press',primary:'ohp',muscleGroups:['Shoulders','Triceps'],sets:4,reps:'6-10',targetWeightLb:gw('ohp')},{id:uid('ex'),name:'Lateral Raises',primary:'accessory',muscleGroups:['Shoulders'],sets:3,reps:'12-15'},{id:uid('ex'),name:'Incline Dumbbell Curls',primary:'accessory',muscleGroups:['Biceps'],sets:3,reps:'10-15'},{id:uid('ex'),name:'Skull Crushers',primary:'accessory',muscleGroups:['Triceps'],sets:3,reps:'8-12'},{id:uid('ex'),name:'Hammer Curls',primary:'accessory',muscleGroups:['Biceps','Forearms'],sets:3,reps:'10-15'}];mg=['Shoulders','Biceps','Triceps'];}
+    const tmpl = baseWorkoutTemplate(dt);
+    const wo = tmpl.map(ex => {
+      if (ex.primary !== 'accessory') return { ...ex, targetWeightLb: gw(ex.primary as LiftKey) };
+      const lib = findLibraryExercise(ex.name);
+      if (lib?.weightRatio && lib.weightRatio.ratio > 0) {
+        const w = roundTo2_5(Math.max(sw[lib.weightRatio.relativeTo] * lib.weightRatio.ratio + (Math.random() - 0.5) * 5, lib.weightRatio.minWeight));
+        return { ...ex, targetWeightLb: w };
+      }
+      return ex;
+    });
+    const mg = Array.from(new Set(wo.flatMap(w => w.muscleGroups)));
     demoHistory.push({id:uid('sess'),dateISO:new Date(Date.now()-da*86400000).toISOString(),dayType:dt,muscleGroups:mg,energy:en,difficulty:di,sleepHours:sl,workout:wo,logs:wo.map(w=>({exerciseId:w.id}))});
   });
   return {setup:demoSetup,history:demoHistory};
@@ -1245,7 +1381,8 @@ function TodayView({today,nextDayType,history,setup,onGenerate,onUpdateLog,onReg
 
   // SINGLE EXERCISE VIEW
   const isPrimary = currentEx.primary!=='accessory';
-  const isDumbbell = currentEx.name.toLowerCase().includes('dumbbell')||currentEx.name.toLowerCase().includes('lateral raise')||currentEx.name.toLowerCase().includes('hammer curl');
+  const libEntry = findLibraryExercise(currentEx.name);
+  const isDumbbell = libEntry?.weightRatio?.isPerDumbbell || currentEx.name.toLowerCase().includes('dumbbell') || currentEx.name.toLowerCase().includes('lateral raise') || currentEx.name.toLowerCase().includes('hammer curl');
   const lastPerf = isPrimary&&currentEx.primary!=='accessory'?findLastLiftPerformance(history.slice(1),currentEx.primary as LiftKey):findLastAccessoryPerformance(history.slice(1),currentEx.name);
   const weightDelta = lastPerf?.exercise?.targetWeightLb&&currentEx.targetWeightLb?currentEx.targetWeightLb-lastPerf.exercise.targetWeightLb:null;
 
